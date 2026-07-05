@@ -1,5 +1,15 @@
 # Fase 4 — OCR e indexado (diseño)
 
+> **Actualización 2026-07-05 (misma fecha, ronda 2):** el motor descrito aquí
+> (Text Recognition sobre bitmap) reconocía mal la manuscrita real y fue
+> reemplazado por **ML Kit Digital Ink Recognition**: consume los puntos de
+> los trazos (sin rasterizar), modelo de español con descarga única vía Play
+> Services (excepción aprobada a "cero red", ver CLAUDE.md) y segmentación de
+> líneas propia (`groupStrokesIntoLines`). Si el modelo no está descargado,
+> el cierre de nota pospone el indexado sin tocar `annotations.json`. La
+> búsqueda además normaliza diacríticos ("excepcion" ≡ "excepción"). La
+> sección de rasterización de abajo queda como registro histórico.
+
 Fecha: 2026-07-05. Alcance: RF-24..27, RF-11/12, RF-34, UC-04, UC-09,
 RNF-02/03/04/07 según `docs/requerimientos_apps_notas.md`.
 
