@@ -1,17 +1,28 @@
 package com.saider.turmalin
 
 import android.os.Bundle
-import android.util.Log
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 
-// Fase 0 del roadmap: prototipo de ink. Una sola pantalla, sin navegación.
+// Pantallas: galería (inicio) y nota abierta, navegadas por estado — dos
+// pantallas no ameritan librería de navegación todavía.
 class MainActivity : ComponentActivity() {
 
     // Ver StylusEraserRouter: el stream de goma del S Pen se enruta desde
     // dispatchTouchEvent directo al canvas, sin pasar por Compose.
     private val eraserRouter = StylusEraserRouter()
+
+    // El atajo de goma solo aplica con el canvas abierto.
+    private var canvasOpen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,8 +33,92 @@ class MainActivity : ComponentActivity() {
         //   adb shell am force-stop com.saider.turmalin
         //   adb shell am start -n com.saider.turmalin/.MainActivity --ez wet_high_latency false
         val wetHighLatency = intent.getBooleanExtra("wet_high_latency", true)
+
         setContent {
-            InkCanvasScreen(wetHighLatency = wetHighLatency, eraserRouter = eraserRouter)
+            val repo = remember { NoteRepository(applicationContext) }
+            val viewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.factory(repo))
+            val galleryState by viewModel.state.collectAsState()
+            var openNote by remember { mutableStateOf<NoteMeta?>(null) }
+            var focusTitleOnOpen by remember { mutableStateOf(false) }
+            var showGraph by remember { mutableStateOf(false) }
+            val titleNudge by viewModel.titleNudge.collectAsState()
+
+            SideEffect { canvasOpen = openNote != null }
+
+            val current = openNote
+            if (current == null && showGraph) {
+                GraphScreen(
+                    repo = repo,
+                    // RF-22: doble tap en un nodo abre la nota.
+                    onOpenNote = { note ->
+                        viewModel.dismissTitleNudge()
+                        focusTitleOnOpen = false
+                        openNote = note
+                    },
+                    onBack = { showGraph = false },
+                )
+            } else if (current == null) {
+                GalleryScreen(
+                    state = galleryState,
+                    titleNudge = titleNudge,
+                    // Con título sugerido por OCR (RF-12) se aplica directo;
+                    // sin OCR, se abre la nota con el título enfocado (RF-11).
+                    onNudgeAction = { nudge ->
+                        if (nudge.suggestedTitle != null) {
+                            viewModel.applySuggestedTitle(nudge)
+                        } else {
+                            viewModel.dismissTitleNudge()
+                            focusTitleOnOpen = true
+                            openNote = nudge.note
+                        }
+                    },
+                    onNudgeDismiss = viewModel::dismissTitleNudge,
+                    onNewNote = {
+                        viewModel.dismissTitleNudge()
+                        focusTitleOnOpen = false
+                        openNote = viewModel.createNote()
+                    },
+                    onOpenNote = { note ->
+                        viewModel.dismissTitleNudge()
+                        focusTitleOnOpen = false
+                        openNote = note
+                    },
+                    onSetQuery = viewModel::setQuery,
+                    onOpenNotebook = viewModel::openNotebook,
+                    onSetSortOrder = viewModel::setSortOrder,
+                    onCreateNotebook = viewModel::createNotebook,
+                    onRenameNotebook = { notebook, name ->
+                        viewModel.renameNotebook(notebook.id, name)
+                    },
+                    onDeleteNotebook = { notebook -> viewModel.deleteNotebook(notebook.id) },
+                    onMoveNote = viewModel::moveNote,
+                    onOpenGraph = { showGraph = true },
+                )
+            } else {
+                key(current.uuid) {
+                    NoteScreen(
+                        meta = current,
+                        repo = repo,
+                        wetHighLatency = wetHighLatency,
+                        eraserRouter = eraserRouter,
+                        focusTitleOnOpen = focusTitleOnOpen,
+                        onClose = { closed, inkChanged ->
+                            openNote = null
+                            // UC-04: OCR en background solo si la tinta cambió;
+                            // el aviso de título (RF-11/12) lo emite el ViewModel.
+                            viewModel.onNoteClosed(closed, inkChanged)
+                        },
+                        // Seguir un link cierra la nota origen con el mismo
+                        // flujo de onClose y abre la destino (UC-05/06).
+                        onFollowLink = { closed, inkChanged, targetUuid ->
+                            viewModel.onNoteClosed(closed, inkChanged)
+                            focusTitleOnOpen = false
+                            openNote = viewModel.state.value.notes
+                                .find { it.uuid == targetUuid }
+                        },
+                    )
+                }
+            }
         }
     }
 
@@ -43,58 +138,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Fase 0: solo el S Pen interactúa con la app, así que los streams táctiles de
-    // dedo/palma se descartan aquí, antes de llegar a Compose. Además de servir como
-    // palm rejection, esto evita un crash conocido de androidx.ink 1.0.0: la
-    // contabilidad interna de punteros de InProgressStrokes (InProgressShapes.kt:286,
-    // "changeId not mapped to a pointerId") se corrompe cuando conviven punteros
-    // consumidos (dedo/palma) con el stylus. En Samsung el S Pen es un dispositivo de
-    // entrada independiente y nunca comparte MotionEvent con los dedos, por lo que
-    // basta con revisar el toolType del stream completo.
+    // La palm rejection vive en el listener del canvas (InkCanvasScreen), no
+    // aquí: el dedo opera normal en toda la UI (galería, título, chips,
+    // controles de página) y solo el canvas ignora los punteros que no son del
+    // S Pen. Aquí queda únicamente la intercepción del stream de goma (RF-05c):
+    // en este dispositivo los DOWN de streams con toolType ERASER se pierden en
+    // el interop Compose→AndroidView, así que el borrado se enruta desde el
+    // único punto donde está garantizado que llega el gesto completo.
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // DIAGNÓSTICO TEMPORAL RF-05c: registrar qué llega a la Activity con el
-        // botón del pen. Quitar cuando el atajo quede verificado.
-        if (ev.buttonState != 0 ||
-            ev.actionMasked == MotionEvent.ACTION_DOWN ||
-            ev.actionMasked == MotionEvent.ACTION_CANCEL
-        ) {
-            Log.d(
-                "Turmalin",
-                "dispatchTouch: ${MotionEvent.actionToString(ev.actionMasked)} " +
-                    "tool=${ev.getToolType(0)} buttons=${ev.buttonState}",
-            )
-        }
-        // RF-05c: el stream de goma se maneja aquí y NO se entrega a Compose —
-        // en este dispositivo los DOWN de streams con toolType ERASER se pierden
-        // en el interop Compose→AndroidView, así que el borrado se enruta desde
-        // el único punto donde está garantizado que llega todo el gesto.
-        if (hasEraserSignal(ev)) {
+        if (canvasOpen && hasEraserSignal(ev)) {
             eraserRouter.handler?.let { handle ->
                 handle(ev)
                 return true
             }
         }
-
-        // TOOL_TYPE_ERASER también cuenta como stylus: algunos digitalizadores
-        // reportan ese toolType cuando el botón del pen va presionado (RF-05c).
-        val isStylusStream = (0 until ev.pointerCount).any {
-            val toolType = ev.getToolType(it)
-            toolType == MotionEvent.TOOL_TYPE_STYLUS ||
-                toolType == MotionEvent.TOOL_TYPE_ERASER
-        }
-        return if (isStylusStream) super.dispatchTouchEvent(ev) else true
-    }
-
-    // DIAGNÓSTICO TEMPORAL RF-05c: los eventos de botón de stylus pueden llegar
-    // como genéricos (hover, ACTION_BUTTON_PRESS). Quitar tras verificar.
-    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        if (ev.buttonState != 0) {
-            Log.d(
-                "Turmalin",
-                "dispatchGeneric: ${MotionEvent.actionToString(ev.actionMasked)} " +
-                    "tool=${ev.getToolType(0)} buttons=${ev.buttonState}",
-            )
-        }
-        return super.dispatchGenericMotionEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 }
