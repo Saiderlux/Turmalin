@@ -39,6 +39,13 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // Reconocimiento de manuscrita on-device (RF-24, RNF-04): Digital Ink lee
+    // los puntos de los trazos, no imágenes. El modelo de español se descarga
+    // UNA vez vía Play Services (excepción aprobada a "cero red", ver
+    // CLAUDE.md); el reconocimiento nunca sale del dispositivo.
+    implementation(libs.mlkit.digital.ink.recognition)
 
     // Ink API de Google: captura, renderizado de baja latencia, brushes,
     // geometría y almacenamiento de trazos. Fase 0 solo usa authoring + rendering,
@@ -53,4 +60,6 @@ dependencies {
 
     // Predictor de movimiento: parte de la receta oficial de baja latencia de Ink API.
     implementation(libs.androidx.input.motionprediction)
+
+    testImplementation(libs.junit)
 }

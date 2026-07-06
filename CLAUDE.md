@@ -12,8 +12,8 @@ Documento completo de requerimientos y casos de uso: `docs/requerimientos_app_no
 
 - Kotlin + Jetpack Compose
 - Motor de ink: `androidx.ink` (Ink API de Google) — usar sus módulos de strokes, geometry, brush, rendering y storage. No reinventar serialización de trazos ni selección por lazo, la librería ya lo resuelve.
-- OCR: ML Kit, on-device, ejecutado solo al cerrar una nota — nunca en tiempo real durante la escritura.
-- Sin backend, sin red, sin dependencias de servidor. Todo el almacenamiento es local.
+- OCR: ML Kit Digital Ink Recognition (reconoce los trazos, no imágenes), on-device, ejecutado solo al cerrar una nota — nunca en tiempo real durante la escritura.
+- Sin backend, sin red, sin dependencias de servidor. Todo el almacenamiento es local. Única excepción aprobada: la descarga one-time del modelo de español de Digital Ink vía Play Services (~20MB); el reconocimiento es 100% on-device.
 
 ## Dispositivo de prueba
 
