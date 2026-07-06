@@ -24,12 +24,13 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - Notas con páginas libres, agregadas manualmente
 - Organización en cuadernos (carpetas)
 - Creación de links mediante lazo de selección
-- Links bidireccionales automáticos
+- Links dirigidos (A→B) con backlinks automáticos: la referencia inversa es una consulta, no una arista extra
 - Vista de grafo con nodos huérfanos diferenciados
 - Búsqueda por contenido (vía índice OCR)
 - Título editable, sugerido por OCR al cerrar la nota
 - Tags manuales por teclado
 - Herramientas básicas: lápiz (grosor variable), colores, goma (trazo y área), papel con líneas/cuadrícula
+- Manipulación del canvas mediante gestos táctiles (pan, pinch-to-zoom y swipe para cambiar de página con dos dedos)
 - Exportación a PDF con links visibles como overlay
 - Almacenamiento 100% local, vault como carpeta visible del sistema de archivos
 
@@ -39,7 +40,6 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - Sugerencia automática de tags por OCR
 - Plantillas de papel adicionales (puntos, isométrico)
 - Lasso para mover/redimensionar trazos existentes
-- Zoom de escritura amplificada
 - Bridge/plugin de exportación a Obsidian
 - Sincronización en la nube
 
@@ -78,6 +78,11 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **RF-07**: El usuario debe poder crear una nota nueva sin ningún campo obligatorio previo — el teclado nunca aparece antes de escribir.
 - **RF-08**: Cada nota nueva debe iniciar con título "Sin título" editable en cualquier momento.
 - **RF-09**: El usuario debe poder añadir páginas a una nota mediante un botón explícito (no automático por scroll).
+- **RF-09a**: La navegación entre páginas y la manipulación del canvas (pan y zoom) se realizará mediante gestos táctiles. El sistema debe separar estrictamente los eventos de entrada: el S Pen (`PointerType.Stylus`) se reserva exclusivamente para trazar en la capa de ink, mientras que los gestos táctiles (`PointerType.Touch`) se usarán para mover el viewport mediante un detector de gestos de transformación con filtrado por tipo de puntero (equivalente a `detectTransformGestures`). Esto garantiza un palm rejection nativo y permite swipe con dos dedos para paginación. Al reabrir una nota se restaura la última página abierta.
+- **RF-09b**: Reglas del viewport derivadas del palm rejection y de la inmutabilidad del ink:
+  - Todo gesto de viewport requiere **dos dedos**; un solo contacto táctil (dedo o palma apoyada) nunca mueve el canvas, y ningún gesto táctil tiene efecto mientras el S Pen está en contacto con la pantalla.
+  - El swipe de paginación opera con la página encajada (zoom ≈ 1x); con zoom activo, el arrastre de dos dedos hace pan y la paginación queda en los controles explícitos. Al terminar un gesto cerca de 1x, el viewport se reencaja a la identidad.
+  - Los trazos se almacenan siempre en **coordenadas del documento**, independientes del viewport: pan y zoom son transformaciones exclusivamente visuales que jamás modifican la geometría guardada en la capa de ink, y la entrada del S Pen se convierte de pantalla a documento con la inversa exacta de esa misma transformación (una única fuente de verdad para render e input).
 - **RF-10**: No debe existir límite duro de páginas por nota; el sistema debe sugerir (no forzar) dividir notas que superen 15 páginas, umbral configurable en `settings.json`, usando la notificación no bloqueante estándar (ver RF-34).
 - **RF-11**: Al cerrar una nota que sigue con título "Sin título", el sistema debe mostrar la notificación no bloqueante estándar (ver RF-34) sugiriendo añadir título, sin bloquear ni repetirse más de dos veces.
 - **RF-12**: El sistema debe sugerir un título basado en la primera línea del texto OCR, editable por el usuario.
@@ -90,14 +95,15 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 
 ### 4.4 Links y grafo
 - **RF-17**: El usuario debe poder seleccionar una región de ink (texto o dibujo) con un lazo y crear un link hacia otra nota mediante lista de búsqueda.
-- **RF-18**: Los links deben ser bidireccionales: si la Nota A linkea a la Nota B, la Nota B debe mostrar que es referenciada por A sin acción adicional del usuario.
+- **RF-18**: Los links son **dirigidos** (A→B): si la Nota A linkea a la Nota B, solo A registra la arista. La "bidireccionalidad" es de consulta, no de datos — la Nota B muestra que A la referencia (backlink) invirtiendo el índice global, sin acción adicional del usuario ni una arista B→A implícita. Que B linkee de vuelta a A es un acto explícito e independiente (par mutuo).
 - **RF-19**: El sistema debe proveer una vista de grafo donde cada nota es un nodo.
 - **RF-20**: Las notas huérfanas (sin links) deben mostrarse en el grafo con color visualmente distinto y notorio.
 - **RF-21**: El usuario debe poder crear un link arrastrando un nodo hacia otro directamente en la vista de grafo (conecta notas completas, no regiones).
-- **RF-22**: Tocar un nodo en el grafo debe abrir la nota correspondiente.
+- **RF-22**: La interacción en el grafo será por selección. Un toque simple (tap) en un nodo lo selecciona, resaltando visualmente el nodo y sus conexiones directas, mientras atenúa el resto del grafo. Un doble toque (double tap) en un nodo abrirá la nota correspondiente.
+- **RF-22a**: El tamaño visual (radio) de los nodos en el grafo debe ser dinámico, aumentando proporcionalmente según la cantidad de links entrantes y salientes que posea la nota.
 - **RF-23**: Los links no deben modificar la capa de ink bajo ninguna circunstancia — se representan como overlay en la capa de anotaciones.
 - **RF-23a**: El overlay de un link manual debe seguir la forma exacta de la región seleccionada (vía geometría de Ink API), renderizado como tinte semitransparente en un único color fijo reservado exclusivamente para links, excluido por completo de la paleta de colores de pluma disponible para el usuario (no un color calculado dinámicamente). Links sugeridos (futuro, v2) se distinguen con contorno punteado sin relleno, mismo color base.
-- **RF-23b**: La nota debe mostrar un badge en la barra superior con el número de referencias entrantes (backlinks). Tocarlo despliega un panel lateral o bottom sheet listando las notas de origen, sin usar gestos de swipe para evitar conflicto con la navegación entre páginas.
+- **RF-23b**: La nota debe mostrar un badge en la barra superior con el número de referencias **entrantes** (backlinks), obtenidas invirtiendo el índice global de links (quién apunta a la nota actual). Tocarlo despliega un panel lateral o bottom sheet listando las notas de origen, el cual se invoca por toque y no por swipe de un dedo, para mantener libre el palm rejection.
 
 ### 4.5 Búsqueda e indexado
 - **RF-24**: El sistema debe ejecutar OCR local (ML Kit) sobre cada nota al momento de cerrarla, no en tiempo real durante la escritura.
@@ -261,7 +267,7 @@ vault/
       annotations.json → links, highlights, texto OCR y sus regiones
       meta.json         → título, timestamps, tags, cuaderno asociado
       thumb.webp        → miniatura generada para galería
-  graph.json            → índice global de links entre notas (uuid → uuid[])
+  graph.json            → índice global de links dirigidos (uuid → uuids salientes[]); los backlinks se obtienen invirtiéndolo
   search_index.json     → índice invertido de términos OCR (v2, para sugerencias)
   settings.json
 ```
@@ -296,7 +302,7 @@ Reglas clave:
 4. **OCR e indexado** — ML Kit al cerrar nota, búsqueda funcional.
 5. **Links y grafo** — lazo, bidireccionalidad, vista de grafo, huérfanas.
 6. **Paleta y exportación** — herramientas de dibujo del MVP, tags, PDF con links.
-7. **v2** — marcatextos, tipos de lápiz, sugerencias de tags por OCR, plantillas, lasso de edición, zoom de escritura, bridge a Obsidian.
+7. **v2** — marcatextos, tipos de lápiz, sugerencias de tags por OCR, plantillas, lasso de edición, bridge a Obsidian.
 
 ---
 
@@ -306,6 +312,9 @@ Reglas clave:
 2. **Formato de `ink.bin`:** se usa la serialización nativa de `androidx.ink.storage`, no un formato propio desde cero.
 3. **Overlay visual del link:** tinte semitransparente siguiendo la forma exacta de la selección, en un único color fijo excluido de la paleta de plumas — sin cálculo dinámico de contraste.
 4. **Umbral de páginas:** 15 páginas, configurable, sugerencia única no bloqueante, sin variar según si la nota tiene links (se valida con uso real una vez exista el prototipo).
-5. **Interacción de backlinks:** badge en barra superior + panel lateral/bottom sheet, sin gestos de swipe.
+5. **Interacción de backlinks:** badge en barra superior + panel lateral/bottom sheet, invocado por toque y no por swipe de un dedo (reservado para no comprometer el palm rejection, ver RF-23b).
+6. **Modelo de links dirigido (no simétrico):** `graph.json` guarda solo las aristas salientes de cada nota (A→B), alineado con las regiones (`LinkRegion.targetUuid`, ya dirigido). La bidireccionalidad es de consulta: los backlinks se calculan invirtiendo el índice, no duplicando la arista. Motivo: si A linkea a B pero B no a A, no son "bidireccionales" — la referencia inversa solo sirve para responder "quién apunta a la nota actual". Un par mutuo son dos aristas explícitas e independientes.
+7. **Pincel dentro de ink.bin (color y grosor, RF-03/04):** el color y grosor de cada trazo son propiedades intrínsecas de la tinta, así que viven en ink.bin (formato v2: encabezado de versión + color/grosor por trazo antes de la geometría nativa de `androidx.ink.storage`), no en un sidecar de anotaciones. La librería 1.0.0 solo serializa nativamente `StrokeInputBatch` (geometría) y `BrushFamily`, no el `Brush` completo; color y grosor se escriben como escalares en el mismo stream y reconstruyen el `Brush` al leer (familia pressurePen y epsilon son constantes del MVP). Un ink.bin v1 se descarta como página en blanco: la retrocompat se rompió a propósito (notas actuales solo de prueba).
+8. **Export a PDF vectorial (RF-28/29):** `android.graphics.pdf.PdfDocument` nativo (sin dependencias nuevas); el ink se dibuja con el mismo `CanvasStrokeRenderer` de la pantalla, por lo que sale como geometría vectorial (no rasterizada) y los halos de link se re-tiñen como overlay. El archivo va a Descargas vía MediaStore (scoped storage, sin permiso en API 29+).
 
 Todas las preguntas abiertas anteriores quedaron resueltas. El documento está listo para pasar al prototipo.
