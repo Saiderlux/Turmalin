@@ -1,83 +1,87 @@
 # Turmalin
 
-**Notas manuscritas que se conectan entre sí.**
+<img src="TURMALIN_logo.svg" alt="Turmalin logo" width="200"/>
 
-Turmalin es una app de notas para tablet Android pensada para quienes piensan y estudian escribiendo a mano, pero no quieren perder la capacidad de conectar ideas que hace tan valiosas a herramientas como Obsidian. Es, en esencia, un sistema de gestión del conocimiento tipo Obsidian — pero donde la unidad de contenido no es texto plano, sino tinta digital real, capturada con S Pen.
+*[Leer esto en español](README.es.md)*
 
-## El problema que resuelve
+**Handwritten notes that link to each other.**
 
-Hoy existen dos mundos que no se hablan:
+Turmalin is a note-taking app for Android tablets, built for people who think and study by writing by hand, without giving up the idea-linking that makes tools like Obsidian so valuable. It's essentially an Obsidian-style knowledge management system — except the unit of content isn't plain text, it's real digital ink captured with an S Pen.
 
-- **Apps de escritura a mano** (GoodNotes, Squid, Samsung Notes) — excelentes para tomar notas con lápiz, pero cada nota vive aislada. No hay forma de decir "esta idea se conecta con aquella otra".
-- **Apps de gestión del conocimiento** (Obsidian, Heptabase, Roam) — perfectas para tejer una red de ideas mediante links, pero pensadas para texto tecleado, no para escritura a mano fluida.
+## The problem it solves
 
-Turmalin no es un compromiso entre las dos: escribes a mano de forma completamente natural, y por encima de eso puedes decidir qué partes de tu tinta se conectan con qué otras notas, exactamente como harías con un link en Obsidian.
+Today there are two worlds that don't talk to each other:
 
-## Principio de diseño
+- **Handwriting apps** (GoodNotes, Squid, Samsung Notes) — great for taking notes with a pen, but every note lives in isolation. There's no way to say "this idea connects to that other one."
+- **Knowledge management apps** (Obsidian, Heptabase, Roam) — perfect for weaving a network of ideas through links, but built for typed text, not fluid handwriting.
 
-**Cero fricción en el momento de escribir.** Nunca se te pide un título, un tag o una organización antes de empezar a escribir — todo eso ocurre antes o después, nunca interrumpiendo el trazo. El teclado no aparece a menos que tú lo pidas.
+Turmalin isn't a compromise between the two: you write by hand completely naturally, and on top of that you can decide which parts of your ink connect to which notes, exactly as you would with a link in Obsidian.
 
-## Qué puede hacer Turmalin hoy (v1)
+## Design principle
 
-### Escritura a mano
-- Captura fluida con S Pen (presión, inclinación, baja latencia), con rechazo automático de la palma apoyada sobre la pantalla.
-- Paleta de 8 colores de pluma y 3 grosores de trazo.
-- Goma de trazo completo (toca y borra la línea entera) y goma de borrado parcial (recorta justo la parte que tocas).
-- Atajo de goma manteniendo presionado el botón físico del S Pen, sin soltar el lápiz.
-- Papel en blanco por nota; cada nota puede tener varias páginas, añadidas explícitamente con un botón.
-- Navegación entre páginas y zoom/pan con gestos táctiles de dos dedos — el lápiz siempre queda reservado para escribir o borrar, nunca para mover el lienzo.
+**Zero friction at the moment of writing.** You're never asked for a title, a tag, or organization before you start writing — all of that happens before or after, never interrupting the stroke. The keyboard doesn't appear unless you ask for it.
 
-### Notas y organización
-- Cada nota se crea vacía y lista para escribir de inmediato, con título "Sin título" editable en cualquier momento.
-- Al cerrar una nota sin título, Turmalin sugiere uno basado en lo primero que escribiste (ver OCR más abajo).
-- Tags manuales por nota, escritos por teclado, separados por comas.
-- Cuadernos para agrupar notas visualmente (una nota puede vivir en un cuaderno o suelta en la raíz).
-- Galería de inicio con todas tus notas y cuadernos, ordenable por fecha, título o cuaderno.
+## What Turmalin can do today (v1)
 
-### Links y el grafo de conocimiento
-Esta es la pieza central de Turmalin: **conectar ideas manuscritas entre sí.**
+### Handwriting
+- Fluid capture with the S Pen (pressure, tilt, low latency), with automatic rejection of the palm resting on the screen.
+- Palette of 8 pen colors and 3 stroke widths.
+- Full-stroke eraser (tap and erase the whole line) and partial eraser (trims just the part you touch).
+- Eraser shortcut by holding down the S Pen's physical button, without lifting the pen.
+- Blank paper per note; each note can have several pages, added explicitly with a button.
+- Page navigation and zoom/pan with two-finger touch gestures — the pen is always reserved for writing or erasing, never for moving the canvas.
 
-- Selecciona con un lazo cualquier región de tu tinta —una palabra, un dibujo, un párrafo entero— y créale un link hacia otra nota, tal como seleccionarías texto para un link en Obsidian.
-- Los links son **dirigidos**: si la Nota A apunta a la Nota B, eso no crea automáticamente una flecha de vuelta. La "referencia inversa" (quién apunta a esta nota) es una consulta instantánea, no un dato duplicado — el mismo modelo mental que usa Obsidian con sus backlinks.
-- Cada nota muestra un contador de referencias entrantes y un panel para saltar directo a las notas que la mencionan.
-- **Vista de grafo** completa, con física en vivo (los nodos se acomodan solos, como en Obsidian): notas huérfanas (sin ninguna conexión) resaltadas en un color distinto, tamaño de nodo proporcional a cuántas conexiones tiene, y un panel de ajustes para afinar fuerzas, distancia entre nodos, grosor de las líneas y visibilidad de etiquetas según el zoom.
-- También puedes crear un link arrastrando un nodo hacia otro directamente en la vista de grafo, sin pasar por el lazo.
-- Los links nunca tocan tu tinta original: viven en una capa aparte, así que borrar o mover un link jamás altera lo que escribiste.
+### Notes and organization
+- Each note is created empty and ready to write on immediately, with an editable "Untitled" title.
+- When you close an untitled note, Turmalin suggests one based on the first thing you wrote (see OCR below).
+- Manual tags per note, typed on the keyboard, comma-separated.
+- Notebooks to group notes visually (a note can live in a notebook or loose at the root).
+- Home gallery with all your notes and notebooks, sortable by date, title, or notebook.
 
-### Búsqueda
-- Reconocimiento de escritura a mano (OCR on-device) que corre solo al cerrar una nota — nunca mientras escribes, para no competir por recursos con el trazo en tiempo real.
-- Búsqueda instantánea en la galería por título, tags y contenido de lo que escribiste, sin ningún procesamiento adicional en el momento de buscar.
+### Links and the knowledge graph
+This is Turmalin's core piece: **connecting handwritten ideas to each other.**
 
-### Exportación
-- Exporta cualquier nota a PDF **vectorial** (no una foto de la pantalla): la tinta se mantiene nítida a cualquier nivel de zoom.
-- Los links quedan visibles en el PDF como el mismo halo de color que ves en la app, así que la red de conexiones sobrevive fuera de Turmalin.
-- El PDF se guarda directamente en la carpeta de Descargas del dispositivo, listo para compartir.
+- Lasso-select any region of your ink — a word, a drawing, an entire paragraph — and link it to another note, just as you'd select text for a link in Obsidian.
+- Links are **directed**: if Note A points to Note B, that doesn't automatically create an arrow back. The "backlink" (who points to this note) is an instant query, not duplicated data — the same mental model Obsidian uses for its backlinks.
+- Every note shows a count of incoming references and a panel to jump straight to the notes that mention it.
+- Full **graph view**, with live physics (nodes settle into place on their own, like in Obsidian): orphan notes (with no connections at all) highlighted in a different color, node size proportional to how many connections it has, and a settings panel to tune forces, node distance, line thickness, and label visibility by zoom level.
+- You can also create a link by dragging one node onto another directly in the graph view, without going through the lasso.
+- Links never touch your original ink: they live in a separate layer, so deleting or moving a link never alters what you wrote.
 
-### Privacidad y portabilidad
-- Todo el reconocimiento de escritura corre on-device — nada de tu letra ni tus notas se envía a ningún servidor.
-- Cero backend, cero cuenta, cero conexión de red salvo la descarga única (y opcional) del modelo de reconocimiento en español.
-- Tus notas viven como una carpeta normal y visible en el almacenamiento del dispositivo: puedes copiarla o respaldarla manualmente en cualquier momento, sin depender de ninguna función de exportación.
+### Search
+- Handwriting recognition (on-device OCR) that only runs when you close a note — never while you're writing, so it doesn't compete for resources with real-time stroke capture.
+- Instant search in the gallery by title, tags, and the content of what you wrote, with no extra processing at search time.
 
-## Qué no incluye todavía (roadmap)
+### Export
+- Export any note to a **vector** PDF (not a screenshot): the ink stays sharp at any zoom level.
+- Links remain visible in the PDF as the same colored halo you see in the app, so the network of connections survives outside Turmalin.
+- The PDF is saved directly to the device's Downloads folder, ready to share.
 
-Fuera del alcance de esta primera versión, pensado para más adelante: marcatextos, tipos de pluma adicionales (pincel, pluma estilográfica), sugerencia automática de tags, plantillas de papel con líneas o cuadrícula, edición de trazos existentes con lazo, y un puente de exportación directo a Obsidian.
+### Privacy and portability
+- All handwriting recognition runs on-device — none of your handwriting or notes is sent to any server.
+- No backend, no account, no network connection except the one-time (optional) download of the Spanish recognition model.
+- Your notes live as a normal, visible folder in the device's storage: you can copy or back it up manually at any time, without relying on any export feature.
 
-## Instalación
+## What's not included yet (roadmap)
 
-Requisitos:
-- Tablet Android con soporte S Pen (o stylus equivalente).
-- Android Studio con el SDK de Android configurado.
+Out of scope for this first version, planned for later: highlighters, additional pen types (brush, fountain pen), automatic tag suggestions, paper templates with lines or grids, editing existing strokes with a lasso, and a direct export bridge to Obsidian.
 
-Pasos:
+## Installation
+
+Requirements:
+- Android tablet with S Pen support (or equivalent stylus).
+- Android Studio with the Android SDK configured.
+
+Steps:
 
 ```bash
-git clone <url-del-repositorio>
+git clone <repository-url>
 cd Turmalin
-./gradlew installDebug   # instala en el dispositivo conectado por USB (adb devices)
+./gradlew installDebug   # installs on the device connected via USB (adb devices)
 ```
 
-No hace falta ninguna cuenta, clave de API ni backend propio: Turmalin funciona completamente offline desde el primer arranque.
+No account, API key, or backend of your own is needed: Turmalin works completely offline from the first launch.
 
-## Estado del proyecto
+## Project status
 
-Turmalin es un proyecto personal, sin fecha de lanzamiento fija, con intención de convertirse eventualmente en una app pública. Esta v1 cubre el ciclo completo: escribir, organizar, conectar, buscar y exportar.
+Turmalin is a personal project, with no fixed release date, intended to eventually become a public app. This v1 covers the full cycle: write, organize, link, search, and export.
