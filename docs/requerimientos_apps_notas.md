@@ -93,6 +93,8 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **RF-10**: No debe existir límite duro de páginas por nota; el sistema debe sugerir (no forzar) dividir notas que superen 15 páginas, umbral configurable en `settings.json`, usando la notificación no bloqueante estándar (ver RF-34).
 - **RF-11**: Al cerrar una nota que sigue con título "Sin título", el sistema debe mostrar la notificación no bloqueante estándar (ver RF-34) sugiriendo añadir título, sin bloquear ni repetirse más de dos veces.
 - **RF-12**: El sistema debe sugerir un título basado en la primera línea del texto OCR, editable por el usuario.
+- **RF-35**: La fecha de "última edición" (`modifiedAtMillis`) de una nota debe actualizarse únicamente cuando hay un cambio real de contenido (trazos, links, título o tags) — nunca solo por abrir o ver la nota, cambiar de página o que la app pase a segundo plano sin modificarla.
+- **RF-36**: El usuario debe poder eliminar una nota desde el menú de la nota o de la galería. La eliminación mueve la nota a una papelera dentro del vault (`vault/trash/{uuid}/`) y muestra la notificación no bloqueante estándar (ver RF-34) con opción de deshacer — no requiere diálogo de confirmación porque es reversible. Vaciar la papelera (borrado permanente e irreversible de todas las notas eliminadas) sí requiere un diálogo de confirmación bloqueante antes de proceder.
 
 ### 4.3 Organización
 - **RF-13**: El usuario debe poder crear, renombrar y eliminar cuadernos.
@@ -262,6 +264,25 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
   2. El usuario borra por trazo individual (toca un trazo) o por área (arrastra sobre una zona).
 - **Postcondición:** Los trazos afectados se eliminan de la capa de ink. Si algún trazo borrado tenía una región linkeada asociada, el overlay se recalcula (borrado parcial) o el link se elimina junto con un snackbar de deshacer (borrado total, ver RF-05a y RF-05b).
 
+### UC-13 — Eliminar una nota
+- **Actor:** Usuario
+- **Precondición:** Existe al menos una nota, vista desde su propia pantalla o desde la galería (menú de la tarjeta).
+- **Flujo principal:**
+  1. El usuario elige "Eliminar" sobre la nota.
+  2. El sistema mueve la nota a `vault/trash/{uuid}/` de inmediato, sin diálogo de confirmación.
+  3. El sistema muestra la notificación no bloqueante estándar con acción "Deshacer" (RF-34).
+- **Flujo alternativo:** El usuario toca "Deshacer" antes de que expire el aviso — la nota vuelve a `vault/notes/{uuid}/` tal como estaba.
+- **Postcondición:** La nota deja de aparecer en la galería y el grafo; sigue intacta dentro de la papelera hasta que se restaure o se vacíe la papelera.
+
+### UC-14 — Restaurar o vaciar la papelera
+- **Actor:** Usuario
+- **Precondición:** La papelera tiene al menos una nota.
+- **Flujo principal:**
+  1. El usuario abre la papelera desde la galería.
+  2. El usuario restaura una nota puntual, que vuelve a `vault/notes/{uuid}/` y reaparece en la galería.
+  3. Alternativamente, el usuario elige "Vaciar papelera": el sistema muestra un diálogo de confirmación bloqueante (borrado permanente e irreversible) antes de eliminar el contenido de todas las notas en `vault/trash/`.
+- **Postcondición:** Las notas restauradas vuelven a estar activas; las notas de una papelera vaciada quedan borradas del disco sin posibilidad de deshacer.
+
 ---
 
 ## 7. Modelo de datos (resumen)
@@ -274,6 +295,10 @@ vault/
       annotations.json → links, highlights, texto OCR y sus regiones
       meta.json         → título, timestamps, tags, cuaderno asociado
       thumb.webp        → miniatura generada para galería
+  trash/
+    {uuid}/              → nota eliminada (RF-36, UC-13/14): mismo contenido que notes/{uuid}/,
+                           movida entera aquí; se restaura moviéndola de vuelta o se borra
+                           permanentemente al vaciar la papelera
   graph.json            → índice global de links dirigidos (uuid → uuids salientes[]); los backlinks se obtienen invirtiéndolo
   search_index.json     → índice invertido de términos OCR (v2, para sugerencias)
   settings.json
@@ -322,6 +347,8 @@ Reglas clave:
 5. **Interacción de backlinks:** badge en barra superior + panel lateral/bottom sheet, invocado por toque y no por swipe de un dedo (reservado para no comprometer el palm rejection, ver RF-23b).
 6. **Modelo de links dirigido (no simétrico):** `graph.json` guarda solo las aristas salientes de cada nota (A→B), alineado con las regiones (`LinkRegion.targetUuid`, ya dirigido). La bidireccionalidad es de consulta: los backlinks se calculan invirtiendo el índice, no duplicando la arista. Motivo: si A linkea a B pero B no a A, no son "bidireccionales" — la referencia inversa solo sirve para responder "quién apunta a la nota actual". Un par mutuo son dos aristas explícitas e independientes.
 7. **Pincel dentro de ink.bin (color y grosor, RF-03/04):** el color y grosor de cada trazo son propiedades intrínsecas de la tinta, así que viven en ink.bin (formato v2: encabezado de versión + color/grosor por trazo antes de la geometría nativa de `androidx.ink.storage`), no en un sidecar de anotaciones. La librería 1.0.0 solo serializa nativamente `StrokeInputBatch` (geometría) y `BrushFamily`, no el `Brush` completo; color y grosor se escriben como escalares en el mismo stream y reconstruyen el `Brush` al leer (familia pressurePen y epsilon son constantes del MVP). Un ink.bin v1 se descarta como página en blanco: la retrocompat se rompió a propósito (notas actuales solo de prueba).
-8. **Export a PDF vectorial (RF-28/29):** `android.graphics.pdf.PdfDocument` nativo (sin dependencias nuevas); el ink se dibuja con el mismo `CanvasStrokeRenderer` de la pantalla, por lo que sale como geometría vectorial (no rasterizada) y los halos de link se re-tiñen como overlay. El archivo va a Descargas vía MediaStore (scoped storage, sin permiso en API 29+).
+8. **Export a PDF vectorial (RF-28/29):** `android.graphics.pdf.PdfDocument` nativo (sin dependencias nuevas); el ink se dibuja con el mismo `CanvasStrokeRenderer` de la pantalla, por lo que sale como geometría vectorial (no rasterizada) y los halos de link se re-tiñen como overlay. El PDF ya no se guarda siempre en Descargas por default: el destino lo elige el usuario con el selector de documentos del sistema (SAF, `ACTION_CREATE_DOCUMENT`), con nombre sugerido a partir del título saneado más la fecha; tras guardarlo con éxito se ofrece compartirlo vía `ACTION_SEND`. Sin dependencia de MediaStore. Cada `PdfDocument.Page` se genera con las dimensiones de su propia página (RF-06a): un PDF puede mezclar tamaños y orientaciones, con fondo, cuadrícula y halos de link fieles a cada página.
+9. **Papelera de notas (RF-36):** eliminar mueve la carpeta completa `vault/notes/{uuid}/` a `vault/trash/{uuid}/` (rename atómico, mismo volumen) — no se reescribe ink.bin ni annotations.json. `graph.json` no se modifica al eliminar ni al restaurar (los datos del link sobreviven porque la eliminación es reversible), pero sus aristas se **ocultan** en toda lectura de UI mientras la nota está en la papelera: la vista de grafo solo dibuja aristas cuyos dos extremos son notas activas, y el badge de referencias (RF-23b) no cuenta notas en papelera. Al restaurar, aristas y contadores reaparecen tal como estaban, sin acción adicional. Solo al vaciar la papelera (borrado permanente) se purgan de `graph.json` las entradas que referencian las notas eliminadas.
+10. **Crear link arrastrando en el grafo: descartado.** El layout dirigido por fuerzas (repulsión entre nodos, estilo Obsidian) hace que soltar un nodo exactamente sobre otro sea poco fiable — ni el propio Obsidian lo ofrece. El grafo queda como vista de solo lectura salvo selección (RF-22): la única forma de crear links sigue siendo el Lazo de vínculo (RF-17) desde dentro de la nota.
 
 Todas las preguntas abiertas anteriores quedaron resueltas. El documento está listo para pasar al prototipo.

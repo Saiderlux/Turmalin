@@ -103,6 +103,12 @@ class GalleryViewModel(
     // Aviso de título pendiente activo (RF-11/RF-12); null = ninguno.
     private val _titleNudge = MutableStateFlow<TitleNudge?>(null)
     val titleNudge: StateFlow<TitleNudge?> = _titleNudge
+
+    // Nota recién movida a la papelera (RF-36), ofrecida para deshacer con el
+    // aviso no bloqueante estándar (RF-34); null = ninguna eliminación pendiente.
+    private val _deleteUndo = MutableStateFlow<NoteMeta?>(null)
+    val deleteUndo: StateFlow<NoteMeta?> = _deleteUndo
+
     // Estado visible del sistema (heurística 1): confirmación de guardado al
     // cerrar una nota e indicación de indexado OCR en curso; null = nada que
     // mostrar. Es un indicador pasivo, no el componente de acción RF-34.
@@ -261,6 +267,24 @@ class GalleryViewModel(
     fun moveNote(meta: NoteMeta, notebookId: String?) {
         repo.moveNote(meta, notebookId)
         refresh()
+    }
+
+    /** UC-13: elimina (reversible) y ofrece deshacer con el aviso estándar (RF-34/36). */
+    fun deleteNote(meta: NoteMeta) {
+        repo.deleteNote(meta.uuid)
+        _deleteUndo.value = meta
+        refresh()
+    }
+
+    fun undoDeleteNote() {
+        val meta = _deleteUndo.value ?: return
+        repo.restoreNote(meta.uuid)
+        _deleteUndo.value = null
+        refresh()
+    }
+
+    fun dismissDeleteUndo() {
+        _deleteUndo.value = null
     }
 
     companion object {

@@ -2,6 +2,7 @@ package com.saider.turmalin
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.ink.brush.Brush
 import androidx.ink.storage.decode
@@ -44,19 +45,17 @@ data class NoteMeta(
     // Tags manuales por teclado (RF-16): la búsqueda de la galería los indexa
     // junto al título y al texto OCR.
     val tags: List<String> = emptyList(),
-)
-
     // Fondo de página de la nota (RF-06): estilo + espaciado. Default BLANK; una
     // nota sin la preferencia (meta.json viejo) asume blanco sin romperse.
     val paper: PaperBackground = PaperBackground(),
     // Tamaño de página POR PÁGINA (RF-06a), indexado por página; consultar
     // siempre vía [pageSizeOf], que tolera listas cortas (⇒ Carta retrato).
     val pageSizes: List<PageSize> = emptyList(),
-/**
- * Cuaderno (RF-13): agrupación puramente visual. No es carpeta física — las
- * notas siempre viven en `vault/notes/{uuid}` y solo referencian al cuaderno
- * por [id] desde su meta.json, así mover una nota nunca toca el ink (RF-31).
- */
+    // RF-36: momento en que la nota fue movida a la papelera; null = activa.
+    // Solo se lee de notas dentro de vault/trash (ver [NoteRepository.listTrash]).
+    val deletedAtMillis: Long? = null,
+)
+
 /** Tamaño de la página [index] (RF-06a): fuera de la lista ⇒ Carta retrato,
  *  así una nota con pageCount mayor que su lista nunca rompe. */
 fun NoteMeta.pageSizeOf(index: Int): PageSize =
@@ -82,6 +81,42 @@ fun resolvePageSizes(json: JSONObject, pageCount: Int): List<PageSize> {
     )
     return List(pageCount) { legacy }
 }
+
+/**
+ * RF-35: la fecha de modificación de una nota solo debe avanzar cuando hay un
+ * cambio real de contenido — trazos, links, título o tags — nunca por abrir,
+ * ver, cambiar de página o mandar la app a segundo plano sin editar.
+ */
+/**
+ * Subgrafo con solo los nodos que pasan [keep]: una arista sobrevive únicamente
+ * si AMBOS extremos pasan. Función pura (testeable en JVM) que sirve a dos usos:
+ * ocultar notas en papelera al renderizar (keep = activas) y purgar el grafo al
+ * vaciar la papelera (keep = no eliminadas).
+ */
+fun filterGraphNodes(
+    graph: Map<String, List<String>>,
+    keep: (String) -> Boolean,
+): Map<String, List<String>> = buildMap {
+    for ((origin, targets) in graph) {
+        if (!keep(origin)) continue
+        val kept = targets.filter(keep)
+        if (kept.isNotEmpty()) put(origin, kept)
+    }
+}
+
+fun noteContentChanged(
+    original: NoteMeta,
+    newTitle: String,
+    newTags: List<String>,
+    inkChanged: Boolean,
+    linksChanged: Boolean,
+): Boolean = inkChanged || linksChanged || newTitle != original.title || newTags != original.tags
+
+/**
+ * Cuaderno (RF-13): agrupación puramente visual. No es carpeta física — las
+ * notas siempre viven en `vault/notes/{uuid}` y solo referencian al cuaderno
+ * por [id] desde su meta.json, así mover una nota nunca toca el ink (RF-31).
+ */
 data class Notebook(
     val id: String,
     val name: String,
@@ -138,6 +173,7 @@ class NoteRepository(context: Context) {
 
     private val appContext = context.applicationContext
     private val notesDir = File(context.getExternalFilesDir(null), "vault/notes")
+    private val trashDir = File(context.getExternalFilesDir(null), "vault/trash")
     private val notebooksFile = File(context.getExternalFilesDir(null), "vault/notebooks.json")
     private val graphFile = File(context.getExternalFilesDir(null), "vault/graph.json")
     private val settingsFile = File(context.getExternalFilesDir(null), "vault/settings.json")
@@ -167,6 +203,49 @@ class NoteRepository(context: Context) {
         val moved = meta.copy(notebookId = notebookId)
         saveMeta(moved)
         return moved
+    }
+
+    // --- Papelera (RF-36, UC-13/14): mover la carpeta completa de la nota
+    // entre vault/notes y vault/trash — nunca se reescriben ink.bin ni
+    // annotations.json, solo meta.json (deletedAtMillis) antes de moverla.
+
+    /** Eliminar (reversible, UC-13): mueve `notes/{uuid}` entero a `trash/{uuid}`. */
+    fun deleteNote(uuid: String) {
+        val dir = File(notesDir, uuid)
+        val current = readMeta(dir) ?: return
+        saveMeta(current.copy(deletedAtMillis = System.currentTimeMillis()))
+        trashDir.mkdirs()
+        dir.renameTo(File(trashDir, uuid))
+    }
+
+    /** Deshacer / restaurar (UC-13/14): mueve `trash/{uuid}` de vuelta a `notes/{uuid}`. */
+    fun restoreNote(uuid: String) {
+        val dir = File(trashDir, uuid)
+        val trashed = readMeta(dir) ?: return
+        notesDir.mkdirs()
+        dir.renameTo(File(notesDir, uuid))
+        saveMeta(trashed.copy(deletedAtMillis = null))
+    }
+
+    /** Notas en la papelera (UC-14), más recientemente eliminadas primero. */
+    fun listTrash(): List<NoteMeta> =
+        (trashDir.listFiles() ?: emptyArray())
+            .filter { it.isDirectory }
+            .mapNotNull { readMeta(it) }
+            .sortedByDescending { it.deletedAtMillis ?: 0L }
+
+    /** Vaciar papelera (UC-14): borrado permanente e irreversible — la UI debe
+     *  confirmar con un diálogo bloqueante antes de llamar esto (RF-36). Es el
+     *  ÚNICO punto donde las aristas de graph.json que referencian notas
+     *  eliminadas se purgan de verdad (hasta aquí solo estaban ocultas). */
+    fun emptyTrash() {
+        val removed = (trashDir.listFiles() ?: emptyArray())
+            .filter { it.isDirectory }
+            .mapTo(HashSet()) { it.name }
+        trashDir.listFiles()?.forEach { it.deleteRecursively() }
+        if (removed.isNotEmpty()) {
+            writeGraph(filterGraphNodes(loadGraph()) { it !in removed })
+        }
     }
 
     // --- Cuadernos (RF-13): registro único en vault/notebooks.json ---
@@ -244,15 +323,28 @@ class NoteRepository(context: Context) {
         writeGraph(graph)
     }
 
-    /** Backlinks de una nota (RF-23b, UC-06): quién apunta a [uuid] (entrantes). */
+    /**
+     * Grafo visible (RF-19/RF-23b): solo aristas cuyos DOS extremos son notas
+     * activas. Las notas en papelera se ocultan sin borrar sus aristas de
+     * graph.json — la eliminación es reversible (RF-36) y al restaurar la nota
+     * sus vínculos reaparecen intactos. La purga definitiva ocurre solo al
+     * vaciar la papelera ([emptyTrash]). Render y badges leen de aquí;
+     * [loadGraph] crudo queda para los ciclos leer-modificar-escribir, que
+     * deben preservar las aristas de notas en papelera.
+     */
+    fun activeGraph(): Map<String, List<String>> {
+        val active = listNotes().mapTo(HashSet()) { it.uuid }
+        return filterGraphNodes(loadGraph()) { it in active }
+    }
+
+    /** Backlinks de una nota (RF-23b, UC-06): quién apunta a [uuid] (entrantes),
+     *  excluyendo notas en papelera (el badge no cuenta lo que no se ve). */
     fun loadBacklinks(uuid: String): List<String> =
-        loadGraph().filter { uuid in it.value }.keys.toList()
+        activeGraph().filter { uuid in it.value }.keys.toList()
 
     /**
      * Quita la arista dirigida a→b de graph.json solo si ya no queda ningún link
      * de región de `a` que la respalde (RF-05b: el link muere con sus trazos).
-     * ponytail: un link de arrastre nodo-a-nodo (UC-08, sin trazos) hacia el mismo
-     * destino se borraría también; provenance por arista si hiciera falta distinguir.
      */
     fun removeGraphLinkIfOrphan(a: String, b: String) {
         if (loadRegionLinks(a).any { it.targetUuid == b }) return
@@ -437,7 +529,22 @@ class NoteRepository(context: Context) {
             .put("pageCount", meta.pageCount)
             .put("lastPageIndex", meta.lastPageIndex)
             .put("tags", JSONArray(meta.tags))
+            .put("paperStyle", meta.paper.style.name)
+            .put("paperSpacing", meta.paper.spacing.toDouble())
+            .put(
+                "pageSizesMm",
+                JSONArray().also { array ->
+                    for (size in meta.pageSizes) {
+                        array.put(
+                            JSONArray()
+                                .put(size.widthMm.toDouble())
+                                .put(size.heightMm.toDouble()),
+                        )
+                    }
+                },
+            )
         meta.notebookId?.let { json.put("notebookId", it) }
+        meta.deletedAtMillis?.let { json.put("deletedAtMillis", it) }
         File(dir, "meta.json").writeText(json.toString())
     }
 
@@ -458,6 +565,22 @@ class NoteRepository(context: Context) {
                 tags = json.optJSONArray("tags")?.let { arr ->
                     List(arr.length()) { arr.getString(it) }
                 } ?: emptyList(),
+                // Ausente (meta.json viejo) o valor inválido ⇒ blanco por default.
+                paper = PaperBackground(
+                    style = runCatching {
+                        PaperStyle.valueOf(json.optString("paperStyle", PaperStyle.BLANK.name))
+                    }.getOrDefault(PaperStyle.BLANK),
+                    spacing = json.optDouble(
+                        "paperSpacing", DEFAULT_PAPER_SPACING.toDouble(),
+                    ).toFloat(),
+                ),
+                // Por página; ausente ⇒ migra el tamaño uniforme legacy o Carta.
+                pageSizes = resolvePageSizes(json, json.optInt("pageCount", 1)),
+                deletedAtMillis = if (json.has("deletedAtMillis")) {
+                    json.getLong("deletedAtMillis")
+                } else {
+                    null
+                },
             )
         }.getOrNull()
     }
@@ -557,41 +680,21 @@ class NoteRepository(context: Context) {
                         val id = ids?.getOrNull(index) ?: newStrokeId()
                         add(IdStroke(id, Stroke(penBrush, batch)))
                     }
-            .put("paperStyle", meta.paper.style.name)
-            .put("paperSpacing", meta.paper.spacing.toDouble())
-            .put(
-                "pageSizesMm",
-                JSONArray().also { array ->
-                    for (size in meta.pageSizes) {
-                        array.put(
-                            JSONArray()
-                                .put(size.widthMm.toDouble())
-                                .put(size.heightMm.toDouble()),
-                        )
-                    }
-                },
-            )
                 }
             }
         }.getOrElse { emptyList() }
     }
 
     /**
-     * Exporta la nota completa a un PDF vectorial en la carpeta pública de
-     * Descargas (RF-28/29, UC-10): el ink va como geometría vectorial (no
-     * rasterizada) reusando el renderer de la app, y los halos de link (RF-23a)
-     * se dibujan como overlay. Devuelve el Uri del archivo, o null si falló.
+     * Genera el PDF vectorial de la nota completa en memoria (RF-28/29, UC-10):
+     * el ink va como geometría vectorial (no rasterizada) reusando el renderer
+     * de la app, y los halos de link (RF-23a) se dibujan como overlay. El
+     * destino lo elige el usuario después vía [writePdf] (Storage Access
+     * Framework) — esta función no escribe nada a disco.
      */
-    fun exportNoteToPdf(meta: NoteMeta): Uri? = PdfExporter(appContext).export(this, meta)
+    fun buildPdf(meta: NoteMeta): PdfDocument? = PdfExporter(appContext).build(this, meta)
+
+    /** Vuelca un PDF ya generado al [uri] elegido por el usuario (RF-28). */
+    fun writePdf(document: PdfDocument, uri: Uri): Boolean =
+        PdfExporter(appContext).writeTo(document, uri)
 }
-                // Ausente (meta.json viejo) o valor inválido ⇒ blanco por default.
-                paper = PaperBackground(
-                    style = runCatching {
-                        PaperStyle.valueOf(json.optString("paperStyle", PaperStyle.BLANK.name))
-                    }.getOrDefault(PaperStyle.BLANK),
-                    spacing = json.optDouble(
-                        "paperSpacing", DEFAULT_PAPER_SPACING.toDouble(),
-                    ).toFloat(),
-                ),
-                // Por página; ausente ⇒ migra el tamaño uniforme legacy o Carta.
-                pageSizes = resolvePageSizes(json, json.optInt("pageCount", 1)),

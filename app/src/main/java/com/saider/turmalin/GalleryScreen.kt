@@ -1,7 +1,9 @@
 package com.saider.turmalin
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,14 +35,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -49,6 +53,7 @@ private sealed interface GalleryDialog {
     data object NewNotebook : GalleryDialog
     data class NotebookActions(val notebook: Notebook) : GalleryDialog
     data class RenameNotebook(val notebook: Notebook) : GalleryDialog
+    data class NoteActions(val note: NoteMeta) : GalleryDialog
     data class MoveNote(val note: NoteMeta) : GalleryDialog
 }
 
@@ -73,7 +78,16 @@ fun GalleryScreen(
     onDeleteNotebook: (Notebook) -> Unit,
     onMoveNote: (NoteMeta, String?) -> Unit,
     onOpenGraph: () -> Unit,
+    onOpenTrash: () -> Unit,
+    onDeleteNote: (NoteMeta) -> Unit,
+    deleteUndo: NoteMeta?,
+    onUndoDeleteNote: () -> Unit,
+    onDismissDeleteUndo: () -> Unit,
+    // Estado visible del sistema (heurística 1): "Nota guardada",
+    // "indexando contenido…"; null = nada que mostrar.
+    saveStatus: String? = null,
 ) {
+    val colors = Theme.colors
     var dialog by remember { mutableStateOf<GalleryDialog?>(null) }
     val openNotebook = state.notebooks.find { it.id == state.openNotebookId }
     val notes = galleryNotes(state)
@@ -81,7 +95,7 @@ fun GalleryScreen(
     // Gesto atrás dentro de un cuaderno: volver a la raíz, no salir de la app.
     BackHandler(enabled = state.openNotebookId != null) { onOpenNotebook(null) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryHeader(
                 openNotebook = openNotebook,
@@ -90,6 +104,7 @@ fun GalleryScreen(
                 onSetSortOrder = onSetSortOrder,
                 onNewNotebook = { dialog = GalleryDialog.NewNotebook },
                 onOpenGraph = onOpenGraph,
+                onOpenTrash = onOpenTrash,
             )
 
             SearchField(query = state.query, onSetQuery = onSetQuery)
@@ -129,8 +144,9 @@ fun GalleryScreen(
                     items(notes, key = { it.uuid }) { note ->
                         NoteCard(
                             note = note,
+                            thumbFile = state.thumbFiles[note.uuid],
                             onOpen = { onOpenNote(note) },
-                            onLongPress = { dialog = GalleryDialog.MoveNote(note) },
+                            onLongPress = { dialog = GalleryDialog.NoteActions(note) },
                         )
                     }
                 }
@@ -144,6 +160,17 @@ fun GalleryScreen(
                 .padding(24.dp),
         )
 
+        // Confirmación de guardado e indexado OCR (heurística 1): pasivo, sin
+        // acción — convive con los avisos RF-34 de la esquina izquierda.
+        saveStatus?.let { status ->
+            StatusChip(
+                text = status,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+            )
+        }
+
         // Aviso de título pendiente (RF-11/RF-12) con el componente estándar
         // RF-34: si el OCR aportó una primera línea, se ofrece como título.
         titleNudge?.let { nudge ->
@@ -155,6 +182,21 @@ fun GalleryScreen(
                     actionLabel = if (nudge.suggestedTitle != null) "Usar" else "Añadir título",
                     onAction = { onNudgeAction(nudge) },
                     onDismiss = onNudgeDismiss,
+                    modifier = Modifier.align(Alignment.BottomStart),
+                )
+            }
+        }
+
+        // RF-36: aviso de deshacer tras mover una nota a la papelera (UC-13).
+        // Comparte esquina con el aviso de título; ambos son transitorios y no
+        // deberían solaparse en el flujo normal.
+        deleteUndo?.let { note ->
+            key(note.uuid) {
+                TransientNotice(
+                    message = "«${note.title}» eliminada",
+                    actionLabel = "Deshacer",
+                    onAction = onUndoDeleteNote,
+                    onDismiss = onDismissDeleteUndo,
                     modifier = Modifier.align(Alignment.BottomStart),
                 )
             }
@@ -191,6 +233,15 @@ fun GalleryScreen(
             },
             onDismiss = { dialog = null },
         )
+        is GalleryDialog.NoteActions -> NoteActionsDialog(
+            note = current.note,
+            onMove = { dialog = GalleryDialog.MoveNote(current.note) },
+            onDelete = {
+                onDeleteNote(current.note)
+                dialog = null
+            },
+            onDismiss = { dialog = null },
+        )
         is GalleryDialog.MoveNote -> MoveNoteDialog(
             note = current.note,
             notebooks = state.notebooks,
@@ -209,26 +260,27 @@ fun GalleryScreen(
  */
 @Composable
 private fun SearchField(query: String, onSetQuery: (String) -> Unit) {
+    val colors = Theme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
             .padding(bottom = 8.dp)
-            .border(1.dp, Color(0xFFCCCCCC), RoundedCornerShape(8.dp))
+            .border(1.dp, colors.outline, RoundedCornerShape(8.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicTextField(
             value = query,
             onValueChange = onSetQuery,
-            textStyle = TextStyle(color = Color.Black, fontSize = 16.sp),
+            textStyle = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
             singleLine = true,
             decorationBox = { innerTextField ->
                 Box {
                     if (query.isEmpty()) {
                         BasicText(
                             text = "Buscar por título o contenido…",
-                            style = TextStyle(color = Color(0xFF999999), fontSize = 16.sp),
+                            style = TextStyle(color = colors.textHint, fontSize = AppType.label),
                         )
                     }
                     innerTextField()
@@ -239,7 +291,7 @@ private fun SearchField(query: String, onSetQuery: (String) -> Unit) {
         if (query.isNotEmpty()) {
             BasicText(
                 text = "✕",
-                style = TextStyle(color = Color(0xFF888888), fontSize = 16.sp),
+                style = TextStyle(color = colors.textSecondary, fontSize = AppType.label),
                 modifier = Modifier
                     .clickable { onSetQuery("") }
                     .padding(start = 8.dp),
@@ -257,7 +309,9 @@ private fun GalleryHeader(
     onSetSortOrder: (SortOrder) -> Unit,
     onNewNotebook: () -> Unit,
     onOpenGraph: () -> Unit,
+    onOpenTrash: () -> Unit,
 ) {
+    val colors = Theme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -265,19 +319,13 @@ private fun GalleryHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (openNotebook != null) {
-            BasicText(
-                text = "←",
-                style = TextStyle(color = Color.Black, fontSize = 24.sp),
-                modifier = Modifier
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+            BackArrow(onClick = onBack)
         }
         BasicText(
             text = openNotebook?.name ?: "Turmalin",
             style = TextStyle(
-                color = Color.Black,
-                fontSize = 24.sp,
+                color = colors.textPrimary,
+                fontSize = AppType.display,
                 fontWeight = FontWeight.Bold,
             ),
             maxLines = 1,
@@ -289,8 +337,24 @@ private fun GalleryHeader(
         SortMenu(sortOrder = sortOrder, onSetSortOrder = onSetSortOrder)
         if (openNotebook == null) {
             // RF-19: entrada a la vista de grafo desde la raíz de la galería.
-            HeaderButton(label = "Grafo", onClick = onOpenGraph)
-            HeaderButton(label = "+ Cuaderno", onClick = onNewNotebook)
+            AppButton(
+                label = "Grafo",
+                onClick = onOpenGraph,
+                style = ButtonStyle.FILLED,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            // RF-36: entrada a la papelera (UC-14), solo visible en la raíz.
+            AppButton(
+                label = "Papelera",
+                onClick = onOpenTrash,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            AppButton(
+                label = "+ Cuaderno",
+                onClick = onNewNotebook,
+                style = ButtonStyle.FILLED,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }
@@ -299,6 +363,7 @@ private val sortLabels = mapOf(
     SortOrder.MODIFIED to "Fecha",
     SortOrder.TITLE to "Título",
     SortOrder.NOTEBOOK to "Cuaderno",
+    SortOrder.TAGS to "Tags",
 )
 
 /** Selector de orden (RF-15) con Popup de foundation — sin Material. */
@@ -307,26 +372,26 @@ private fun SortMenu(
     sortOrder: SortOrder,
     onSetSortOrder: (SortOrder) -> Unit,
 ) {
+    val colors = Theme.colors
     var expanded by remember { mutableStateOf(false) }
     Box {
-        HeaderButton(
+        AppButton(
             label = "Orden: ${sortLabels.getValue(sortOrder)} ▾",
             onClick = { expanded = true },
-            filled = false,
         )
         if (expanded) {
             Popup(onDismissRequest = { expanded = false }) {
                 Column(
                     modifier = Modifier
-                        .background(Color.White, RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp)),
+                        .background(colors.surface, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)),
                 ) {
                     SortOrder.entries.forEach { order ->
                         BasicText(
                             text = sortLabels.getValue(order),
                             style = TextStyle(
-                                color = Color.Black,
-                                fontSize = 16.sp,
+                                color = colors.textPrimary,
+                                fontSize = AppType.label,
                                 fontWeight = if (order == sortOrder) {
                                     FontWeight.Bold
                                 } else {
@@ -348,24 +413,6 @@ private fun SortMenu(
     }
 }
 
-@Composable
-private fun HeaderButton(label: String, onClick: () -> Unit, filled: Boolean = true) {
-    val shape = RoundedCornerShape(8.dp)
-    BasicText(
-        text = label,
-        style = TextStyle(
-            color = if (filled) Color.White else Color.Black,
-            fontSize = 15.sp,
-        ),
-        modifier = Modifier
-            .padding(start = 8.dp)
-            .background(if (filled) Color.Black else Color.White, shape)
-            .border(1.dp, if (filled) Color.Black else Color(0xFFCCCCCC), shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotebookCard(
@@ -374,19 +421,20 @@ private fun NotebookCard(
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val colors = Theme.colors
     val shape = RoundedCornerShape(12.dp)
     Column(
         modifier = Modifier
-            .background(Color(0xFFF2F2F2), shape)
-            .border(1.dp, Color(0xFFE0E0E0), shape)
+            .background(colors.surfaceVariant, shape)
+            .border(1.dp, colors.outlineVariant, shape)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .padding(16.dp),
     ) {
         BasicText(
             text = "🗂 ${notebook.name}",
             style = TextStyle(
-                color = Color.Black,
-                fontSize = 17.sp,
+                color = colors.textPrimary,
+                fontSize = AppType.label,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 1,
@@ -395,7 +443,7 @@ private fun NotebookCard(
         Spacer(modifier = Modifier.height(6.dp))
         BasicText(
             text = if (noteCount == 1) "1 nota" else "$noteCount notas",
-            style = TextStyle(color = Color(0xFF888888), fontSize = 13.sp),
+            style = TextStyle(color = colors.textSecondary, fontSize = AppType.caption),
         )
     }
 }
@@ -404,25 +452,50 @@ private fun NotebookCard(
 @Composable
 private fun NoteCard(
     note: NoteMeta,
+    thumbFile: File?,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val colors = Theme.colors
     val dateFormat = remember {
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
     }
     val shape = RoundedCornerShape(12.dp)
+    // Carátula cacheada (RF-15): el mtime del archivo es la clave — solo se
+    // redecodifica cuando la carátula se regeneró (contenido real cambiado).
+    // ponytail: decode síncrono en composición; son webp de ~10-30KB.
+    val thumbMtime = thumbFile?.lastModified() ?: 0L
+    val thumbnail = remember(note.uuid, thumbMtime) {
+        thumbFile
+            ?.takeIf { thumbMtime > 0L }
+            ?.let { BitmapFactory.decodeFile(it.path)?.asImageBitmap() }
+    }
     Column(
         modifier = Modifier
-            .background(Color.White, shape)
-            .border(1.dp, Color(0xFFE0E0E0), shape)
+            .background(colors.surface, shape)
+            .border(1.dp, colors.outlineVariant, shape)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .padding(16.dp),
     ) {
+        if (thumbnail != null) {
+            Image(
+                bitmap = thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)),
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         BasicText(
             text = note.title,
             style = TextStyle(
-                color = Color.Black,
-                fontSize = 17.sp,
+                color = colors.textPrimary,
+                fontSize = AppType.label,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 2,
@@ -431,7 +504,7 @@ private fun NoteCard(
         Spacer(modifier = Modifier.height(6.dp))
         BasicText(
             text = dateFormat.format(Date(note.modifiedAtMillis)),
-            style = TextStyle(color = Color(0xFF888888), fontSize = 13.sp),
+            style = TextStyle(color = colors.textSecondary, fontSize = AppType.caption),
         )
     }
 }
@@ -439,16 +512,17 @@ private fun NoteCard(
 /** Botón flotante de nueva nota (UC-01). */
 @Composable
 private fun NewNoteFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = Theme.colors
     Box(
         modifier = modifier
             .size(60.dp)
-            .background(Color.Black, CircleShape)
+            .background(colors.accent, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             text = "+",
-            style = TextStyle(color = Color.White, fontSize = 30.sp),
+            style = TextStyle(color = colors.onAccent, fontSize = AppType.display),
         )
     }
 }
@@ -461,7 +535,7 @@ private fun EmptyGalleryMessage(text: String, modifier: Modifier = Modifier) {
     ) {
         BasicText(
             text = text,
-            style = TextStyle(color = Color(0xFF888888), fontSize = 16.sp),
+            style = TextStyle(color = Theme.colors.textSecondary, fontSize = AppType.label),
         )
     }
 }
@@ -469,31 +543,36 @@ private fun EmptyGalleryMessage(text: String, modifier: Modifier = Modifier) {
 // --- Diálogos (compose.ui.window.Dialog, sin Material) ---
 
 @Composable
-private fun DialogSurface(content: @Composable ColumnScope.() -> Unit) {
+fun DialogSurface(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
-            .background(Color.White, RoundedCornerShape(16.dp))
+            .background(Theme.colors.surface, RoundedCornerShape(16.dp))
             .padding(24.dp),
         content = content,
     )
 }
 
 @Composable
-private fun DialogTitle(text: String) {
+fun DialogTitle(text: String) {
     BasicText(
         text = text,
-        style = TextStyle(color = Color.Black, fontSize = 19.sp, fontWeight = FontWeight.Bold),
+        style = TextStyle(
+            color = Theme.colors.textPrimary,
+            fontSize = AppType.title,
+            fontWeight = FontWeight.Bold,
+        ),
     )
     Spacer(modifier = Modifier.height(16.dp))
 }
 
 @Composable
-private fun DialogOption(label: String, onClick: () -> Unit, danger: Boolean = false) {
+fun DialogOption(label: String, onClick: () -> Unit, danger: Boolean = false) {
+    val colors = Theme.colors
     BasicText(
         text = label,
         style = TextStyle(
-            color = if (danger) Color(0xFFB00020) else Color.Black,
-            fontSize = 16.sp,
+            color = if (danger) colors.danger else colors.textPrimary,
+            fontSize = AppType.label,
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -511,6 +590,7 @@ private fun TextInputDialog(
     onDismiss: () -> Unit,
     initialValue: String = "",
 ) {
+    val colors = Theme.colors
     var value by remember { mutableStateOf(initialValue) }
     Dialog(onDismissRequest = onDismiss) {
         DialogSurface {
@@ -518,19 +598,25 @@ private fun TextInputDialog(
             BasicTextField(
                 value = value,
                 onValueChange = { value = it },
-                textStyle = TextStyle(color = Color.Black, fontSize = 17.sp),
+                textStyle = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0xFFCCCCCC), RoundedCornerShape(8.dp))
+                    .border(1.dp, colors.outline, RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
             Spacer(modifier = Modifier.height(16.dp))
             Row(modifier = Modifier.align(Alignment.End)) {
-                HeaderButton(label = "Cancelar", onClick = onDismiss, filled = false)
-                if (value.isNotBlank()) {
-                    HeaderButton(label = confirmLabel, onClick = { onConfirm(value.trim()) })
-                }
+                AppButton(label = "Cancelar", onClick = onDismiss, style = ButtonStyle.TEXT)
+                // Deshabilitado (no oculto) con el campo vacío: que el botón
+                // desaparezca leía como error (heurística 4).
+                AppButton(
+                    label = confirmLabel,
+                    onClick = { onConfirm(value.trim()) },
+                    style = ButtonStyle.FILLED,
+                    enabled = value.isNotBlank(),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
     }
@@ -557,6 +643,24 @@ private fun NotebookActionsDialog(
     }
 }
 
+/** Acciones de nota desde la galería (RF-14/RF-36): mover o eliminar. */
+@Composable
+private fun NoteActionsDialog(
+    note: NoteMeta,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        DialogSurface {
+            DialogTitle(note.title)
+            DialogOption(label = "Mover a cuaderno", onClick = onMove)
+            // RF-36: reversible (papelera + deshacer), sin diálogo de confirmación.
+            DialogOption(label = "Eliminar", onClick = onDelete, danger = true)
+        }
+    }
+}
+
 /** Mover una nota entre cuadernos (RF-14). */
 @Composable
 private fun MoveNoteDialog(
@@ -578,7 +682,7 @@ private fun MoveNoteDialog(
             if (destinations.isEmpty() && note.notebookId == null) {
                 BasicText(
                     text = "No hay cuadernos todavía",
-                    style = TextStyle(color = Color(0xFF888888), fontSize = 15.sp),
+                    style = TextStyle(color = Theme.colors.textSecondary, fontSize = AppType.body),
                 )
             }
         }

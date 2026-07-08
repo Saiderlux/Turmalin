@@ -35,13 +35,17 @@ class MainActivity : ComponentActivity() {
         val wetHighLatency = intent.getBooleanExtra("wet_high_latency", true)
 
         setContent {
+          AppTheme {
             val repo = remember { NoteRepository(applicationContext) }
             val viewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.factory(repo))
             val galleryState by viewModel.state.collectAsState()
             var openNote by remember { mutableStateOf<NoteMeta?>(null) }
             var focusTitleOnOpen by remember { mutableStateOf(false) }
             var showGraph by remember { mutableStateOf(false) }
+            var showTrash by remember { mutableStateOf(false) }
             val titleNudge by viewModel.titleNudge.collectAsState()
+            val deleteUndo by viewModel.deleteUndo.collectAsState()
+            val saveStatus by viewModel.saveStatus.collectAsState()
 
             SideEffect { canvasOpen = openNote != null }
 
@@ -56,6 +60,16 @@ class MainActivity : ComponentActivity() {
                         openNote = note
                     },
                     onBack = { showGraph = false },
+                )
+            } else if (current == null && showTrash) {
+                // UC-14: notas eliminadas (RF-36) — restaurar puede traer de
+                // vuelta notas a la galería, así que se refresca al volver.
+                TrashScreen(
+                    repo = repo,
+                    onBack = {
+                        viewModel.refresh()
+                        showTrash = false
+                    },
                 )
             } else if (current == null) {
                 GalleryScreen(
@@ -93,6 +107,12 @@ class MainActivity : ComponentActivity() {
                     onDeleteNotebook = { notebook -> viewModel.deleteNotebook(notebook.id) },
                     onMoveNote = viewModel::moveNote,
                     onOpenGraph = { showGraph = true },
+                    onOpenTrash = { showTrash = true },
+                    onDeleteNote = viewModel::deleteNote,
+                    deleteUndo = deleteUndo,
+                    onUndoDeleteNote = viewModel::undoDeleteNote,
+                    onDismissDeleteUndo = viewModel::dismissDeleteUndo,
+                    saveStatus = saveStatus,
                 )
             } else {
                 key(current.uuid) {
@@ -116,9 +136,18 @@ class MainActivity : ComponentActivity() {
                             openNote = viewModel.state.value.notes
                                 .find { it.uuid == targetUuid }
                         },
+                        // RF-36: eliminar desde la propia nota cierra igual que
+                        // "atrás" pero mueve la nota a la papelera en vez de
+                        // solo guardarla; el snackbar de deshacer aparece ya en
+                        // la galería.
+                        onDeleteNote = { closed ->
+                            viewModel.deleteNote(closed)
+                            openNote = null
+                        },
                     )
                 }
             }
+          }
         }
     }
 
