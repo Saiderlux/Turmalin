@@ -107,7 +107,6 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **RF-18**: Los links son **dirigidos** (A→B): si la Nota A linkea a la Nota B, solo A registra la arista. La "bidireccionalidad" es de consulta, no de datos — la Nota B muestra que A la referencia (backlink) invirtiendo el índice global, sin acción adicional del usuario ni una arista B→A implícita. Que B linkee de vuelta a A es un acto explícito e independiente (par mutuo).
 - **RF-19**: El sistema debe proveer una vista de grafo donde cada nota es un nodo.
 - **RF-20**: Las notas huérfanas (sin links) deben mostrarse en el grafo con color visualmente distinto y notorio.
-- **RF-21**: El usuario debe poder crear un link arrastrando un nodo hacia otro directamente en la vista de grafo (conecta notas completas, no regiones).
 - **RF-22**: La interacción en el grafo será por selección. Un toque simple (tap) en un nodo lo selecciona, resaltando visualmente el nodo y sus conexiones directas, mientras atenúa el resto del grafo. Un doble toque (double tap) en un nodo abrirá la nota correspondiente.
 - **RF-22a**: El tamaño visual (radio) de los nodos en el grafo debe ser dinámico, aumentando proporcionalmente según la cantidad de links entrantes y salientes que posea la nota.
 - **RF-23**: Los links no deben modificar la capa de ink bajo ninguna circunstancia — se representan como overlay en la capa de anotaciones.
@@ -220,15 +219,7 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
   1. El usuario navega a la vista de grafo.
   2. El sistema renderiza cada nota como nodo; nodos con links en color normal, nodos huérfanos en color atenuado.
   3. El usuario puede hacer zoom, pan, y tocar un nodo para abrir la nota.
-- **Postcondición:** Ninguna (vista de solo lectura salvo interacción de UC-08).
-
-### UC-08 — Crear link desde la vista de grafo
-- **Actor:** Usuario
-- **Precondición:** Vista de grafo abierta con al menos dos notas.
-- **Flujo principal:**
-  1. El usuario arrastra un nodo A hacia un nodo B.
-  2. El sistema crea un link bidireccional entre la Nota A y la Nota B completas.
-- **Postcondición:** El grafo refleja el nuevo link; ninguna de las dos notas queda como huérfana si antes lo era.
+- **Postcondición:** Ninguna (vista de solo lectura; arrastrar un nodo solo reacomoda el layout, ver decisión en sección 10).
 
 ### UC-09 — Buscar una nota por contenido
 - **Actor:** Usuario

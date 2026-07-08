@@ -79,7 +79,7 @@ class GraphSimulation(
     var repulsionStrength = 1f
     var linkStrength = 1f
 
-    // Nodo fijado por el arrastre (RF-21): las fuerzas no lo mueven, pero sí
+    // Nodo fijado por el arrastre: las fuerzas no lo mueven, pero sí
     // ejerce repulsión y tensión sobre el resto — los vecinos lo siguen.
     private var pinned = -1
 

@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.TextStyle
@@ -74,13 +75,12 @@ fun nodeRadius(degree: Int): Float =
     min(NODE_BASE_RADIUS + NODE_RADIUS_PER_LINK * degree, NODE_MAX_RADIUS)
 
 /**
- * Vista de grafo (RF-19..22a, UC-07/08): cada nota es un nodo, las aristas
+ * Vista de grafo (RF-19..22a, UC-07): cada nota es un nodo, las aristas
  * salen de graph.json. Layout dirigido por fuerzas en vivo ([GraphSimulation],
  * estilo Obsidian): los nodos se reparten solos y arrastrar uno reinicia el
  * calor para que los vecinos lo sigan. Pan con un dedo en el vacío, pinch de
- * dos dedos para zoom; arrastrar un nodo lo mueve y soltarlo sobre otro crea un
- * link (RF-21). Tap selecciona (resalta nodo + vecinos, atenúa el resto),
- * doble tap abre la nota (RF-22).
+ * dos dedos para zoom; arrastrar un nodo lo mueve. Tap selecciona (resalta
+ * nodo + vecinos, atenúa el resto), doble tap abre la nota (RF-22).
  */
 @Composable
 fun GraphScreen(
@@ -89,7 +89,9 @@ fun GraphScreen(
     onBack: () -> Unit,
 ) {
     val notes = remember { repo.listNotes() }
-    var graph by remember { mutableStateOf(repo.loadGraph()) }
+    // Grafo activo (RF-36): las aristas hacia/desde notas en papelera no se
+    // renderizan — el filtro garantiza que ambos extremos existan en el layout.
+    var graph by remember { mutableStateOf(repo.activeGraph()) }
     var selectedNodeUuid by remember { mutableStateOf<String?>(null) }
     // Ajustes del grafo (perillas de fuerzas/render) y visibilidad del panel.
     var settings by remember { mutableStateOf(repo.loadGraphSettings()) }
@@ -99,44 +101,34 @@ fun GraphScreen(
 
     BackHandler(onBack = onBack)
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    val colors = Theme.colors
+
+    Column(modifier = Modifier.fillMaxSize().background(colors.background)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText(
-                text = "←",
-                style = TextStyle(color = Color.Black, fontSize = 24.sp),
-                modifier = Modifier
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-            )
+            BackArrow(onClick = onBack)
             BasicText(
                 text = "Grafo",
                 style = TextStyle(
-                    color = Color.Black,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
+                    color = colors.textPrimary,
+                    fontSize = AppType.title,
+                    fontWeight = FontWeight.Bold,
                 ),
             )
             Spacer(modifier = Modifier.weight(1f))
             // Abre/cierra el panel de ajustes del grafo (estilo Obsidian).
-            BasicText(
-                text = "⚙",
-                style = TextStyle(color = Color.Black, fontSize = 22.sp),
-                modifier = Modifier
-                    .clickable { showPanel = !showPanel }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-            )
+            AppButton(label = "Ajustes", onClick = { showPanel = !showPanel })
         }
 
         if (notes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 BasicText(
                     text = "El grafo aparecerá cuando existan notas",
-                    style = TextStyle(color = Color(0xFF999999), fontSize = 16.sp),
+                    style = TextStyle(color = colors.textHint, fontSize = AppType.label),
                 )
             }
             return@Column
@@ -264,10 +256,9 @@ fun GraphScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Un único gestor para todo (RF-21/22, UC-08): tap
-                    // selecciona, doble tap abre, arrastrar un nodo lo mueve y
-                    // soltarlo sobre otro crea el link; un dedo en el vacío hace
-                    // pan y dos dedos hacen pinch.
+                    // Un único gestor para todo (RF-22): tap selecciona,
+                    // doble tap abre, arrastrar un nodo lo mueve; un dedo en
+                    // el vacío hace pan y dos dedos hacen pinch.
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -357,13 +348,7 @@ fun GraphScreen(
                             }
 
                             when {
-                                // Soltar un nodo sobre otro crea el link (UC-08).
                                 grabbed != null && dragging -> {
-                                    val target = nodeAt(pos(grabbed), except = grabbed)
-                                    if (target != null) {
-                                        repo.addGraphLink(grabbed, target.uuid)
-                                        graph = repo.loadGraph()
-                                    }
                                     // Se suelta el nodo; las físicas lo reacomodan.
                                     sim.unpin()
                                 }
@@ -478,7 +463,7 @@ fun GraphScreen(
                             )
                             if (note.uuid == selected) {
                                 drawCircle(
-                                    color = Color.Black,
+                                    color = colors.textPrimary,
                                     radius = radius + 5f,
                                     center = center,
                                     style = androidx.compose.ui.graphics.drawscope.Stroke(
@@ -504,9 +489,11 @@ fun GraphScreen(
                             }
                             val labelAlpha = alpha * fadeT
                             if (labelAlpha > 0.01f) {
-                                labelPaint.color = android.graphics.Color.argb(
-                                    (labelAlpha * 255).toInt(), 33, 33, 33,
-                                )
+                                // Color de etiqueta del tema (legible también
+                                // en tema oscuro), con el alpha del fade.
+                                labelPaint.color =
+                                    ((labelAlpha * 255).toInt() shl 24) or
+                                        (colors.textPrimary.toArgb() and 0x00FFFFFF)
                                 canvas.nativeCanvas.drawText(
                                     note.title.take(18),
                                     center.x,
@@ -518,6 +505,18 @@ fun GraphScreen(
                     }
                 }
             }
+
+            // Heurística 10: los gestos del grafo no son descubribles; texto
+            // guía discreto solo hasta que el usuario lo descarta.
+            FirstUseHint(
+                hintKey = "graph_gestures",
+                text = "Toca un nodo para resaltarlo · doble toque abre la nota · " +
+                    "arrastra un nodo para reacomodarlo · " +
+                    "un dedo mueve la vista, dos hacen zoom",
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(12.dp),
+            )
 
             if (showPanel) {
                 GraphPanel(
@@ -536,13 +535,12 @@ fun GraphScreen(
     }
 }
 
-private val PANEL_BG = Color(0xFFF2F3F7)
 private val PANEL_ACCENT = Color(0xFF3949AB)
 
 /**
- * Panel de ajustes del grafo (estilo Obsidian): secciones Display y Forces con
- * las perillas de [GraphSettings]. Los cambios se aplican en vivo vía [onChange]
- * y se persisten al soltar cada control vía [onCommit].
+ * Panel de ajustes del grafo (estilo Obsidian): secciones Visualización y
+ * Fuerzas con las perillas de [GraphSettings]. Los cambios se aplican en vivo
+ * vía [onChange] y se persisten al soltar cada control vía [onCommit].
  */
 @Composable
 private fun GraphPanel(
@@ -553,47 +551,52 @@ private fun GraphPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = Theme.colors
     Column(
         modifier = modifier
             .fillMaxHeight()
             .width(280.dp)
-            .background(PANEL_BG)
+            .background(colors.surfaceVariant)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             BasicText(
                 text = "Ajustes",
-                style = TextStyle(color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                style = TextStyle(
+                    color = colors.textPrimary,
+                    fontSize = AppType.label,
+                    fontWeight = FontWeight.Medium,
+                ),
             )
             Spacer(modifier = Modifier.weight(1f))
             BasicText(
                 text = "✕",
-                style = TextStyle(color = Color.Black, fontSize = 18.sp),
+                style = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
                 modifier = Modifier.clickable(onClick = onClose).padding(4.dp),
             )
         }
 
-        PanelSection("Display")
-        GraphSlider("Node size", settings.nodeSize, 0.5f..2.5f,
+        PanelSection("Visualización")
+        GraphSlider("Tamaño de nodo", settings.nodeSize, 0.5f..2.5f,
             { onChange(settings.copy(nodeSize = it)) }, onCommit)
-        GraphSlider("Link thickness", settings.linkThickness, 1f..8f,
+        GraphSlider("Grosor de vínculo", settings.linkThickness, 1f..8f,
             { onChange(settings.copy(linkThickness = it)) }, onCommit)
-        GraphSlider("Text fade threshold", settings.textFadeThreshold, 0f..2f,
+        GraphSlider("Zoom para mostrar títulos", settings.textFadeThreshold, 0f..2f,
             { onChange(settings.copy(textFadeThreshold = it)) }, onCommit)
-        GraphToggle("Arrows", settings.arrows) {
+        GraphToggle("Flechas", settings.arrows) {
             onChange(settings.copy(arrows = it)); onCommit()
         }
-        PanelButton("Animate", onAnimate)
+        PanelButton("Reacomodar", onAnimate)
 
-        PanelSection("Forces")
-        GraphSlider("Center force", settings.centerGravity, 0f..0.5f,
+        PanelSection("Fuerzas")
+        GraphSlider("Atracción al centro", settings.centerGravity, 0f..0.5f,
             { onChange(settings.copy(centerGravity = it)) }, onCommit)
-        GraphSlider("Repel force", settings.repulsionStrength, 0.2f..3f,
+        GraphSlider("Repulsión entre nodos", settings.repulsionStrength, 0.2f..3f,
             { onChange(settings.copy(repulsionStrength = it)) }, onCommit)
-        GraphSlider("Link force", settings.linkStrength, 0.2f..3f,
+        GraphSlider("Tensión de vínculos", settings.linkStrength, 0.2f..3f,
             { onChange(settings.copy(linkStrength = it)) }, onCommit)
-        GraphSlider("Link distance", settings.idealDistance, 60f..400f,
+        GraphSlider("Distancia de vínculos", settings.idealDistance, 60f..400f,
             { onChange(settings.copy(idealDistance = it)) }, onCommit)
     }
 }
@@ -602,7 +605,11 @@ private fun GraphPanel(
 private fun PanelSection(title: String) {
     BasicText(
         text = title,
-        style = TextStyle(color = Color(0xFF666666), fontSize = 13.sp, fontWeight = FontWeight.Medium),
+        style = TextStyle(
+            color = Theme.colors.textSecondary,
+            fontSize = AppType.caption,
+            fontWeight = FontWeight.Medium,
+        ),
         modifier = Modifier.padding(top = 18.dp, bottom = 4.dp),
     )
 }
@@ -611,7 +618,7 @@ private fun PanelSection(title: String) {
 private fun PanelButton(label: String, onClick: () -> Unit) {
     BasicText(
         text = label,
-        style = TextStyle(color = Color.White, fontSize = 14.sp),
+        style = TextStyle(color = Color.White, fontSize = AppType.body),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
@@ -623,18 +630,19 @@ private fun PanelButton(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun GraphToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
+    val colors = Theme.colors
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
     ) {
-        BasicText(label, style = TextStyle(color = Color.Black, fontSize = 14.sp))
+        BasicText(label, style = TextStyle(color = colors.textPrimary, fontSize = AppType.body))
         Spacer(modifier = Modifier.weight(1f))
         BasicText(
-            text = if (checked) "ON" else "OFF",
-            style = TextStyle(color = Color.White, fontSize = 12.sp),
+            text = if (checked) "Sí" else "No",
+            style = TextStyle(color = Color.White, fontSize = AppType.caption),
             modifier = Modifier
                 .background(
-                    if (checked) PANEL_ACCENT else Color(0xFFB0B0B0),
+                    if (checked) PANEL_ACCENT else colors.disabled,
                     RoundedCornerShape(10.dp),
                 )
                 .clickable { onToggle(!checked) }
@@ -648,13 +656,14 @@ private fun GraphToggle(label: String, checked: Boolean, onToggle: (Boolean) -> 
  * la posición táctil al rango. [onChange] va en vivo; [onCommit] al soltar.
  */
 @Composable
-private fun GraphSlider(
+internal fun GraphSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
     onCommit: () -> Unit,
 ) {
+    val colors = Theme.colors
     val span = range.endInclusive - range.start
     val frac = ((value - range.start) / span).coerceIn(0f, 1f)
     // El pointerInput de abajo no se relanza entre arrastres (su key, `range`,
@@ -665,11 +674,11 @@ private fun GraphSlider(
     val currentOnCommit = rememberUpdatedState(onCommit)
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            BasicText(label, style = TextStyle(color = Color.Black, fontSize = 13.sp))
+            BasicText(label, style = TextStyle(color = colors.textPrimary, fontSize = AppType.caption))
             Spacer(modifier = Modifier.weight(1f))
             BasicText(
                 text = "%.2f".format(value),
-                style = TextStyle(color = Color(0xFF888888), fontSize = 12.sp),
+                style = TextStyle(color = colors.textSecondary, fontSize = AppType.caption),
             )
         }
         var widthPx by remember { mutableStateOf(1f) }
@@ -698,7 +707,7 @@ private fun GraphSlider(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cy = size.height / 2f
                 drawLine(
-                    color = Color(0xFFCCCCCC),
+                    color = colors.outline,
                     start = Offset(0f, cy),
                     end = Offset(size.width, cy),
                     strokeWidth = 5f,
