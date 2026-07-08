@@ -45,11 +45,42 @@ data class NoteMeta(
     val tags: List<String> = emptyList(),
 )
 
+    // Fondo de página de la nota (RF-06): estilo + espaciado. Default BLANK; una
+    // nota sin la preferencia (meta.json viejo) asume blanco sin romperse.
+    val paper: PaperBackground = PaperBackground(),
+    // Tamaño de página POR PÁGINA (RF-06a), indexado por página; consultar
+    // siempre vía [pageSizeOf], que tolera listas cortas (⇒ Carta retrato).
+    val pageSizes: List<PageSize> = emptyList(),
 /**
  * Cuaderno (RF-13): agrupación puramente visual. No es carpeta física — las
  * notas siempre viven en `vault/notes/{uuid}` y solo referencian al cuaderno
  * por [id] desde su meta.json, así mover una nota nunca toca el ink (RF-31).
  */
+/** Tamaño de la página [index] (RF-06a): fuera de la lista ⇒ Carta retrato,
+ *  así una nota con pageCount mayor que su lista nunca rompe. */
+fun NoteMeta.pageSizeOf(index: Int): PageSize =
+    pageSizes.getOrNull(index) ?: DEFAULT_PAGE_SIZE
+
+/**
+ * Tamaños por página desde meta.json (RF-06a). Clave nueva `pageSizesMm`
+ * (array de pares [w,h]); ausente ⇒ migración de lectura: el tamaño uniforme
+ * legacy de la nota (`pageWidthMm`/`pageHeightMm`, a su vez Carta por default)
+ * replicado en todas las páginas. Función pura para testear la migración en JVM.
+ */
+fun resolvePageSizes(json: JSONObject, pageCount: Int): List<PageSize> {
+    val array = json.optJSONArray("pageSizesMm")
+    if (array != null) {
+        return List(array.length()) { i ->
+            val pair = array.getJSONArray(i)
+            PageSize(pair.getDouble(0).toFloat(), pair.getDouble(1).toFloat())
+        }
+    }
+    val legacy = PageSize(
+        widthMm = json.optDouble("pageWidthMm", DEFAULT_PAGE_SIZE.widthMm.toDouble()).toFloat(),
+        heightMm = json.optDouble("pageHeightMm", DEFAULT_PAGE_SIZE.heightMm.toDouble()).toFloat(),
+    )
+    return List(pageCount) { legacy }
+}
 data class Notebook(
     val id: String,
     val name: String,
@@ -498,6 +529,20 @@ class NoteRepository(context: Context) {
                         val id = ids?.getOrNull(index) ?: newStrokeId()
                         add(IdStroke(id, Stroke(penBrush, batch)))
                     }
+            .put("paperStyle", meta.paper.style.name)
+            .put("paperSpacing", meta.paper.spacing.toDouble())
+            .put(
+                "pageSizesMm",
+                JSONArray().also { array ->
+                    for (size in meta.pageSizes) {
+                        array.put(
+                            JSONArray()
+                                .put(size.widthMm.toDouble())
+                                .put(size.heightMm.toDouble()),
+                        )
+                    }
+                },
+            )
                 }
             }
         }.getOrElse { emptyList() }
@@ -511,3 +556,14 @@ class NoteRepository(context: Context) {
      */
     fun exportNoteToPdf(meta: NoteMeta): Uri? = PdfExporter(appContext).export(this, meta)
 }
+                // Ausente (meta.json viejo) o valor inválido ⇒ blanco por default.
+                paper = PaperBackground(
+                    style = runCatching {
+                        PaperStyle.valueOf(json.optString("paperStyle", PaperStyle.BLANK.name))
+                    }.getOrDefault(PaperStyle.BLANK),
+                    spacing = json.optDouble(
+                        "paperSpacing", DEFAULT_PAPER_SPACING.toDouble(),
+                    ).toFloat(),
+                ),
+                // Por página; ausente ⇒ migra el tamaño uniforme legacy o Carta.
+                pageSizes = resolvePageSizes(json, json.optInt("pageCount", 1)),

@@ -62,4 +62,7 @@ dependencies {
     implementation(libs.androidx.input.motionprediction)
 
     testImplementation(libs.junit)
+    // org.json real para tests JVM (el android.jar de unit tests solo trae stubs):
+    // permite testear la migración de meta.json (RF-06a) sin instrumentación.
+    testImplementation("org.json:json:20240303")
 }
