@@ -23,7 +23,7 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - Escritura a mano fluida con soporte S Pen (Ink API)
 - Notas con páginas libres, agregadas manualmente
 - Organización en cuadernos (carpetas)
-- Creación de links mediante lazo de selección
+- Creación de links mediante el "Lazo de vínculo" (gesto de lazo dedicado a crear vínculos)
 - Links dirigidos (A→B) con backlinks automáticos: la referencia inversa es una consulta, no una arista extra
 - Vista de grafo con nodos huérfanos diferenciados
 - Búsqueda por contenido (vía índice OCR)
@@ -53,8 +53,9 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 | **Cuaderno** | Unidad de organización (carpeta). No es un nodo del grafo, solo agrupa notas visualmente. |
 | **Nota** | Unidad atómica del grafo. Tiene título, uno o más páginas, y es el objeto que se linkea. Identificada por un UUID estable. |
 | **Página** | Subdivisión de una nota. El usuario decide cuántas tiene cada nota, añadidas con botón explícito. |
-| **Región linkeada** | Área de ink seleccionada con el lazo que tiene un link asociado. Vive en la capa de anotaciones, nunca modifica el ink. |
-| **Link manual** | Conexión creada explícitamente por el usuario (lazo o arrastre en grafo). Fuente de verdad del grafo. |
+| **Lazo de vínculo** | Nombre de la herramienta en toda la interfaz: un gesto de lazo cuyo único propósito es crear vínculos entre notas (RF-17). No mueve ni edita trazos. |
+| **Región linkeada** | Área de ink seleccionada con el Lazo de vínculo que tiene un link asociado. Vive en la capa de anotaciones, nunca modifica el ink. |
+| **Link manual** | Conexión creada explícitamente por el usuario mediante el Lazo de vínculo. Fuente de verdad del grafo. |
 | **Nota huérfana** | Nota sin ningún link entrante ni saliente. Se muestra en el grafo con color atenuado diferenciado. |
 | **Capa de ink** | Datos de trazos vectoriales. Inmutable una vez trazado. |
 | **Capa de anotaciones** | Links, highlights, texto OCR indexado. Mutable, vive independiente del ink. |
@@ -66,8 +67,8 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 ### 4.1 Captura de ink
 - **RF-01**: El sistema debe capturar trazos del S Pen con datos de posición, presión, inclinación y timestamp, usando `androidx.ink` (Ink API).
 - **RF-02**: El sistema debe implementar palm rejection para evitar trazos accidentales al apoyar la mano.
-- **RF-03**: El usuario debe poder seleccionar grosor de trazo entre al menos 3 tamaños o mediante slider.
-- **RF-04**: El usuario debe poder seleccionar color de un set de 8-10 colores básicos.
+- **RF-03**: El usuario debe poder seleccionar el grosor del trazo mediante un slider continuo (no un set de tamaños fijos), dentro de un rango sano para escritura y dibujo.
+- **RF-04**: El usuario debe poder seleccionar el color de la tinta de dos formas complementarias: (1) un set de 8-10 colores preestablecidos como accesos rápidos, y (2) un selector de color personalizado (rueda de color o similar, p. ej. controles de tono/saturación/brillo). Los preestablecidos no se eliminan al existir el selector: son el camino rápido. El color reservado del overlay de links (RF-23a) sigue excluido de los preestablecidos.
 - **RF-05**: El usuario debe poder borrar por trazo individual o por área (goma).
 - **RF-05c**: La goma se activa de dos formas complementarias: (1) selección persistente desde la barra de herramientas, como cualquier otra herramienta, y (2) atajo temporal manteniendo presionado el botón físico del stylus mientras se dibuja — vía `MotionEvent.isButtonPressed(BUTTON_STYLUS_PRIMARY)`, sin dependencias de SDK propietario. Al soltar el botón, la app vuelve automáticamente a la herramienta que estaba activa antes del atajo.
 - **RF-05a**: El borrado de ink no debe eliminar links de forma directa por diseño de capas, pero sí como consecuencia natural: si el borrado es parcial, el overlay del link se recalcula al área de ink remanente. Si el borrado elimina todo el ink de la región, el link se elimina junto con él.
@@ -94,7 +95,7 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **RF-16**: El usuario debe poder añadir tags a una nota mediante teclado.
 
 ### 4.4 Links y grafo
-- **RF-17**: El usuario debe poder seleccionar una región de ink (texto o dibujo) con un lazo y crear un link hacia otra nota mediante lista de búsqueda.
+- **RF-17**: El usuario debe poder seleccionar una región de ink (texto o dibujo) con la herramienta "Lazo de vínculo" y crear un link hacia otra nota mediante lista de búsqueda. La herramienta se llama "Lazo de vínculo" en toda la interfaz: el nombre deja claro que es un gesto de lazo y que su propósito es crear vínculos (no editar trazos, que es el lasso de edición de v2).
 - **RF-18**: Los links son **dirigidos** (A→B): si la Nota A linkea a la Nota B, solo A registra la arista. La "bidireccionalidad" es de consulta, no de datos — la Nota B muestra que A la referencia (backlink) invirtiendo el índice global, sin acción adicional del usuario ni una arista B→A implícita. Que B linkee de vuelta a A es un acto explícito e independiente (par mutuo).
 - **RF-19**: El sistema debe proveer una vista de grafo donde cada nota es un nodo.
 - **RF-20**: Las notas huérfanas (sin links) deben mostrarse en el grafo con color visualmente distinto y notorio.
@@ -185,11 +186,11 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **Flujo alternativo:** El usuario ignora el toast — la nota conserva el título sugerido o "Sin título" sin bloqueo.
 - **Postcondición:** El texto OCR queda indexado para búsqueda; el título queda asignado o pendiente.
 
-### UC-05 — Crear un link mediante lazo de selección
+### UC-05 — Crear un link mediante el Lazo de vínculo
 - **Actor:** Usuario
 - **Precondición:** Una nota está abierta y contiene al menos una región de ink.
 - **Flujo principal:**
-  1. El usuario activa la herramienta de lazo.
+  1. El usuario activa la herramienta "Lazo de vínculo".
   2. El usuario dibuja un lazo alrededor de una región de ink (texto o dibujo).
   3. El sistema abre una lista de búsqueda de notas existentes.
   4. El usuario selecciona la nota destino.
