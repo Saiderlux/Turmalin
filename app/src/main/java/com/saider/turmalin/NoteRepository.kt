@@ -1,6 +1,7 @@
 package com.saider.turmalin
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.ink.brush.Brush
 import androidx.ink.storage.decode
@@ -395,6 +396,33 @@ class NoteRepository(context: Context) {
             val pages = JSONObject(file.readText()).optJSONArray("ocrPages") ?: return ""
             (0 until pages.length()).joinToString("\n") { pages.getString(it) }
         }.getOrElse { "" }
+    }
+
+    // --- Carátulas de galería (RF-15): thumb.webp dentro de la carpeta de la
+    // nota (ya contemplado en el modelo de datos). Cache en disco: se regenera
+    // solo cuando el contenido real cambió (mismo criterio RF-35, el llamador
+    // decide con el dirty flag de tinta), nunca por solo abrir la nota. ---
+
+    fun thumbnailFile(uuid: String): File = File(File(notesDir, uuid), "thumb.webp")
+
+    /**
+     * Renderiza y cachea la carátula desde la primera página CON contenido
+     * (la más representativa sin heurísticas). Nota sin ningún trazo ⇒ se
+     * elimina la carátula y la galería vuelve a la tarjeta de solo texto.
+     */
+    fun generateThumbnail(meta: NoteMeta) {
+        val brush = defaultBlackPen()
+        for (page in 0 until meta.pageCount) {
+            val strokes = loadStrokes(meta.uuid, page, brush)
+            if (strokes.isEmpty()) continue
+            val bitmap = renderThumbnail(strokes, meta.pageSizeOf(page))
+            thumbnailFile(meta.uuid).outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.WEBP, 85, out)
+            }
+            bitmap.recycle()
+            return
+        }
+        thumbnailFile(meta.uuid).delete()
     }
 
     fun saveMeta(meta: NoteMeta) {

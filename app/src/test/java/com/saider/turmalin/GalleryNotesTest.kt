@@ -92,6 +92,20 @@ class GalleryNotesTest {
     }
 
     @Test
+    fun `orden por tags agrupa por etiqueta menor y deja sin tags al final`() {
+        val state = GalleryUiState(
+            notes = listOf(
+                note("sinTag", title = "aaa"),
+                note("zeta", title = "b", tags = listOf("Zeta")),
+                note("alfa", title = "c", tags = listOf("medio", "alfa")),
+            ),
+            sortOrder = SortOrder.TAGS,
+        )
+        // alfa(min "alfa") < zeta(min "zeta") < sinTag(null → al final).
+        assertEquals(listOf("alfa", "zeta", "sinTag"), galleryNotes(state).map { it.uuid })
+    }
+
+    @Test
     fun `orden por cuaderno agrupa por nombre y luego titulo`() {
         // En la raíz con huérfanos tratados como raíz, el orden por cuaderno
         // solo es observable con notas visibles de cuadernos conocidos: se

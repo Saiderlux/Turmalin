@@ -97,8 +97,8 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 ### 4.3 Organización
 - **RF-13**: El usuario debe poder crear, renombrar y eliminar cuadernos.
 - **RF-14**: El usuario debe poder mover una nota entre cuadernos.
-- **RF-15**: La pantalla de inicio debe mostrar galería de notas y cuadernos, ordenable por fecha, título, cuaderno o tags.
-- **RF-16**: El usuario debe poder añadir tags a una nota mediante teclado.
+- **RF-15**: La pantalla de inicio debe mostrar galería de notas y cuadernos, ordenable por fecha, título, cuaderno o tags. Cada tarjeta de nota muestra una carátula (miniatura renderizada de la primera página con contenido, cacheada como `thumb.webp`); la carátula se regenera únicamente cuando el contenido real de la nota cambió (mismo criterio que RF-35), nunca por solo abrirla.
+- **RF-16**: El usuario debe poder añadir tags a una nota mediante un campo de entrada de chips — escribe una palabra, confirma con espacio o Enter, y se convierte en una etiqueta visual removible con un toque (X o mantener presionado). No debe depender de escribir comas manualmente en un solo campo de texto libre.
 
 ### 4.4 Links y grafo
 - **RF-17**: El usuario debe poder seleccionar una región de ink (texto o dibujo) con la herramienta "Lazo de vínculo" y crear un link hacia otra nota mediante lista de búsqueda. La herramienta se llama "Lazo de vínculo" en toda la interfaz: el nombre deja claro que es un gesto de lazo y que su propósito es crear vínculos (no editar trazos, que es el lasso de edición de v2).

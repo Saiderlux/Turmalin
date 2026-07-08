@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Criterios de orden de la galería (RF-15). */
-enum class SortOrder { MODIFIED, TITLE, NOTEBOOK }
+enum class SortOrder { MODIFIED, TITLE, NOTEBOOK, TAGS }
 
 data class GalleryUiState(
     val notes: List<NoteMeta> = emptyList(),
@@ -25,6 +25,8 @@ data class GalleryUiState(
     // Se busca sobre estos JSON en memoria — jamás OCR al consultar (RF-27).
     val query: String = "",
     val ocrTexts: Map<String, String> = emptyMap(),
+    // Carátulas (RF-15): archivo thumb.webp por nota; puede no existir aún.
+    val thumbFiles: Map<String, java.io.File> = emptyMap(),
 )
 
 /**
@@ -75,6 +77,13 @@ fun galleryNotes(state: GalleryUiState): List<NoteMeta> {
             compareBy<NoteMeta> { nameById[it.notebookId]?.lowercase() ?: "" }
                 .thenBy { it.title.lowercase() }
         )
+        // Por la etiqueta alfabéticamente menor de cada nota (RF-15); las notas
+        // sin tags (clave null) caen al final vía nullsLast y se desempata por título.
+        SortOrder.TAGS -> visible.sortedWith(
+            compareBy(nullsLast<String>()) { note: NoteMeta ->
+                note.tags.map { it.lowercase() }.minOrNull()
+            }.thenBy { it.title.lowercase() }
+        )
     }
 }
 
@@ -94,12 +103,39 @@ class GalleryViewModel(
     // Aviso de título pendiente activo (RF-11/RF-12); null = ninguno.
     private val _titleNudge = MutableStateFlow<TitleNudge?>(null)
     val titleNudge: StateFlow<TitleNudge?> = _titleNudge
+    // Estado visible del sistema (heurística 1): confirmación de guardado al
+    // cerrar una nota e indicación de indexado OCR en curso; null = nada que
+    // mostrar. Es un indicador pasivo, no el componente de acción RF-34.
+    private val _saveStatus = MutableStateFlow<String?>(null)
+    val saveStatus: StateFlow<String?> = _saveStatus
+    private var saveStatusVersion = 0
+
+    private fun showSaveStatus(text: String?, autoClearMillis: Long = 0) {
+        val version = ++saveStatusVersion
+        _saveStatus.value = text
+        if (text != null && autoClearMillis > 0) {
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(autoClearMillis)
+                // Solo limpia si nadie publicó un estado más nuevo entre tanto.
+                if (saveStatusVersion == version) _saveStatus.value = null
+            }
+        }
+    }
 
     init {
         refresh()
         // Pide el modelo de Digital Ink desde ya (descarga única, ver
         // OcrIndexer) para que esté listo antes del primer cierre de nota.
         viewModelScope.launch(Dispatchers.Default) { ocrIndexer.ensureModelAvailable() }
+        // Backfill de carátulas (RF-15): notas anteriores a la feature no
+        // tienen thumb.webp; se genera una vez en background. Las siguientes
+        // regeneraciones ocurren solo al cerrar con contenido cambiado.
+        viewModelScope.launch(Dispatchers.IO) {
+            val missing = repo.listNotes().filterNot { repo.thumbnailFile(it.uuid).exists() }
+            if (missing.isEmpty()) return@launch
+            missing.forEach { runCatching { repo.generateThumbnail(it) } }
+            withContext(Dispatchers.Main) { refresh() }
+        }
     }
 
     fun refresh() {
@@ -111,6 +147,7 @@ class GalleryViewModel(
                 // ponytail: releer todos los annotations.json en cada refresh;
                 // cachear por mtime si el vault crece a cientos de notas.
                 ocrTexts = notes.associate { note -> note.uuid to repo.loadOcrText(note.uuid) },
+                thumbFiles = notes.associate { note -> note.uuid to repo.thumbnailFile(note.uuid) },
             )
         }
     }
@@ -132,14 +169,25 @@ class GalleryViewModel(
     fun onNoteClosed(meta: NoteMeta, inkChanged: Boolean) {
         refresh()
         if (!inkChanged) {
+            showSaveStatus("Nota guardada", autoClearMillis = 2500)
             maybeSuggestTitle(meta)
             return
         }
+        // Visible mientras el OCR corre en background (heurística 1): la
+        // búsqueda puede tardar unos segundos en ver el contenido nuevo.
+        showSaveStatus("Nota guardada · indexando contenido…")
         viewModelScope.launch(Dispatchers.Default) {
+            // Carátula (RF-15): la tinta cambió de verdad (mismo dirty flag que
+            // decide el OCR, criterio RF-35) — se regenera y refresca la tarjeta.
+            runCatching { repo.generateThumbnail(meta) }
+            withContext(Dispatchers.Main) { refresh() }
             // Modelo aún no descargado: se pospone el indexado a un cierre
             // futuro, sin pisar el índice previo con vacíos.
             if (!ocrIndexer.ensureModelAvailable()) {
-                withContext(Dispatchers.Main) { maybeSuggestTitle(meta) }
+                withContext(Dispatchers.Main) {
+                    showSaveStatus("Nota guardada", autoClearMillis = 2500)
+                    maybeSuggestTitle(meta)
+                }
                 return@launch
             }
             val brush = defaultBlackPen()
@@ -151,6 +199,7 @@ class GalleryViewModel(
             repo.saveOcrText(meta.uuid, pages)
             withContext(Dispatchers.Main) {
                 refresh()
+                showSaveStatus("Nota guardada", autoClearMillis = 2500)
                 maybeSuggestTitle(meta)
             }
         }
