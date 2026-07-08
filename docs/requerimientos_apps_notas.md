@@ -121,7 +121,7 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **RF-27**: Los resultados de búsqueda deben ser instantáneos, sin ejecutar OCR en el momento de la consulta.
 
 ### 4.6 Exportación y portabilidad
-- **RF-28**: El usuario debe poder exportar una nota a PDF con el ink en formato vectorial (no rasterizado).
+- **RF-28**: El usuario debe poder exportar una nota a PDF con el ink en formato vectorial (no rasterizado). El tamaño y orientación de cada página del PDF debe coincidir con los configurados para ESA página (RF-06a), convertidos a puntos PDF (72pt = 1 pulgada = 25.4mm) — una nota con páginas mixtas produce un PDF con hojas de distinto tamaño/orientación entre sí. El fondo de página configurado (blanco, líneas o cuadrícula, con el espaciado elegido en RF-06) debe renderizarse también en el PDF, reflejando exactamente lo que se ve en pantalla — no solo el ink. Al exportar, el usuario debe poder elegir el nombre del archivo (sugerido por default a partir del título de la nota, sanitizado, más la fecha) y la ubicación donde guardarlo, usando el selector de documentos del sistema (Storage Access Framework, `ACTION_CREATE_DOCUMENT`) en vez de guardar silenciosamente en Descargas. Tras generar el PDF exitosamente, el sistema debe ofrecer compartirlo directamente vía el selector de compartir de Android (`ACTION_SEND`) hacia cualquier app instalada.
 - **RF-29**: El PDF exportado debe incluir los links como elementos visibles (overlay), no solo el ink puro.
 - **RF-30**: El vault debe residir como carpeta accesible del sistema de archivos del dispositivo, sin sandboxing que impida backup manual.
 - **RF-31**: El UUID de cada nota debe ser estable y no cambiar al renombrar, mover de cuaderno, o editar tags.
@@ -245,8 +245,9 @@ Una app de notas para tablets donde el usuario escribe a mano de forma completa 
 - **Flujo principal:**
   1. El usuario selecciona "Exportar a PDF".
   2. El sistema genera un PDF con el ink en formato vectorial y los links visibles como overlay.
-  3. El sistema guarda el PDF en almacenamiento accesible por el usuario.
-- **Postcondición:** Existe un archivo PDF portable fuera del vault propietario de la app.
+  3. El sistema abre el selector de documentos (SAF) con un nombre de archivo sugerido (título saneado + fecha); el usuario elige o ajusta nombre y ubicación.
+  4. El sistema guarda el PDF en la ubicación elegida y ofrece compartirlo directamente (selector de compartir de Android) hacia cualquier app instalada.
+- **Postcondición:** Existe un archivo PDF portable fuera del vault propietario de la app, en la ubicación que eligió el usuario.
 
 ### UC-11 — Crear y organizar cuadernos
 - **Actor:** Usuario
