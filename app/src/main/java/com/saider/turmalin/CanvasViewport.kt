@@ -41,6 +41,12 @@ class CanvasViewport(
     var offsetY by mutableFloatStateOf(0f)
         private set
 
+    // Offset de "página encajada" (RF-09b): no es (0,0) sino el que centra la
+    // hoja en el área visible, fijado una vez por [centerPage] al conocerse el
+    // tamaño del lienzo. snapToIdentityIfClose() reencaja aquí, no al origen.
+    private var homeOffsetX = 0f
+    private var homeOffsetY = 0f
+
     /** Página encajada (o casi): estado en el que el swipe de dos dedos pagina
      *  en vez de hacer pan. */
     val isNearIdentity: Boolean
@@ -71,9 +77,23 @@ class CanvasViewport(
     fun snapToIdentityIfClose() {
         if (isNearIdentity) {
             scale = 1f
-            offsetX = 0f
-            offsetY = 0f
+            offsetX = homeOffsetX
+            offsetY = homeOffsetY
         }
+    }
+
+    /**
+     * Centra el rect de página (ancho×alto en coordenadas de documento) dentro
+     * de un lienzo de [screenW]×[screenH] px: fija el offset "encajado" (home)
+     * y lo aplica de inmediato. Se llama una vez, al conocerse el tamaño real
+     * del canvas al abrir la nota — el origen documento no debe asumirse pegado
+     * a la esquina superior izquierda del viewport.
+     */
+    fun centerPage(pageWidthDoc: Float, pageHeightDoc: Float, screenW: Float, screenH: Float) {
+        homeOffsetX = (screenW - pageWidthDoc * scale) / 2f
+        homeOffsetY = (screenH - pageHeightDoc * scale) / 2f
+        offsetX = homeOffsetX
+        offsetY = homeOffsetY
     }
 
     /**

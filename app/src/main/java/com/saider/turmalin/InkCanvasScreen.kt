@@ -1,6 +1,7 @@
 package com.saider.turmalin
 
 import android.graphics.Matrix
+import android.os.Build
 import android.util.Log
 import android.view.MotionEvent
 import android.widget.FrameLayout
@@ -9,16 +10,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -29,8 +33,11 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.input.pointer.PointerType
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokeId
@@ -45,6 +52,7 @@ import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
 import androidx.input.motionprediction.MotionEventPredictor
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 // Media caja (en px de pantalla) alrededor de la punta del pen para el hit-test
 // de borrado. ~2.3 mm en la Tab S6 Lite. Con zoom se convierte a espacio de
@@ -52,9 +60,9 @@ import kotlin.math.hypot
 // área física bajo el pen.
 private const val ERASER_HALF_SIZE_PX = 20f
 
-// Distancia horizontal acumulada de arrastre con dos dedos para disparar el
-// cambio de página (RF-09a). ~1.7 cm en la Tab S6 Lite.
-private const val PAGE_SWIPE_THRESHOLD_PX = 160f
+// MotionEvent.TOOL_TYPE_PALM está @hide en el SDK público; el valor es estable
+// en AOSP (RF-09a, rama de clasificación nativa de palma).
+private const val TOOL_TYPE_PALM = 5
 
 // Color fijo reservado para el overlay de links (RF-23a): nunca formará parte
 // de la paleta de plumas del usuario. Halo semitransparente ceñido a la tinta.
@@ -85,10 +93,6 @@ fun linkOverlayBrush(): Brush = Brush.createWithColorIntArgb(
     size = LINK_OVERLAY_SIZE,
     epsilon = 0.1f,
 )
-
-// Movimiento máximo (px de pantalla) para que un contacto de un dedo cuente
-// como tap sobre una región linkeada, en vez de gesto abortado.
-private const val LINK_TAP_SLOP_PX = 24f
 
 /** Ray casting: ¿el punto (x, y) cae dentro del polígono plano [x0,y0,x1,y1,…]? */
 fun polygonContains(polygon: List<Float>, x: Float, y: Float): Boolean {
@@ -157,8 +161,9 @@ fun defaultBlackPen(): Brush = penBrush(0xFF000000.toInt(), 4f)
  * graphicsLayer (visual, nunca toca la geometría de los trazos), y la captura
  * (wet + gomas) vive en espacio de pantalla y convierte con su inversa —
  * `motionEventToWorldTransform` para la pluma, conversión de punto y radio
- * para las gomas. El viewport se manipula solo con gestos de DOS dedos, y
- * nunca mientras el S Pen está apoyado.
+ * para las gomas. El viewport se manipula con el tacto — un dedo panea, dos
+ * hacen pinch (RF-09a, ver [TouchViewportGesture]) — y nunca mientras el
+ * S Pen está apoyado o en rango de hover.
  *
  * @param wetHighLatency si es true (default), la capa wet usa el render helper
  *   clásico por frame (V21, multi-buffered). Con false usa el de baja latencia
@@ -173,6 +178,11 @@ fun InkCanvasScreen(
     strokes: SnapshotStateList<IdStroke>,
     wetHighLatency: Boolean = true,
     eraserRouter: StylusEraserRouter? = null,
+    // Fondo de página (RF-06): capa de render bajo la tinta, nunca ink real.
+    background: PaperBackground = PaperBackground(),
+    // Tamaño de página (RF-06a): la hoja se dibuja como guía visual; el pan es
+    // libre y la tinta puede salirse del borde.
+    pageSize: PageSize = DEFAULT_PAGE_SIZE,
     onSwipePage: (direction: Int) -> Unit = {},
     // Notifica cada modificación real de la capa de tinta (trazo nuevo o
     // borrado). Cargar página o mover el viewport NO cuentan: es el dirty
@@ -185,6 +195,9 @@ fun InkCanvasScreen(
     // lista plana x,y) al levantar el S Pen con la herramienta activa.
     onLassoComplete: (List<Float>) -> Unit = {},
     onLinkTap: (targetUuid: String) -> Unit = {},
+    // Long-press de un dedo sobre la tinta de un link: menú contextual para
+    // eliminar el vínculo deliberadamente (complementa RF-05a/b).
+    onLinkLongPress: (targetUuid: String) -> Unit = {},
     // Trazos cuyo ID desaparece de la página por la goma (borrado total). El
     // borrado parcial NO los emite: sus piezas heredan el ID (RF-05a/b).
     onStrokesErased: (List<IdStroke>) -> Unit = {},
@@ -194,9 +207,11 @@ fun InkCanvasScreen(
     // Vía rememberUpdatedState porque se invoca desde closures del factory de
     // AndroidView, que solo corre una vez y capturaría una lambda vieja.
     val currentOnInkModified = rememberUpdatedState(onInkModified)
+    val currentOnSwipePage = rememberUpdatedState(onSwipePage)
     val currentLinkOverlays = rememberUpdatedState(linkOverlays)
     val currentOnLassoComplete = rememberUpdatedState(onLassoComplete)
     val currentOnLinkTap = rememberUpdatedState(onLinkTap)
+    val currentOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
     val currentOnStrokesErased = rememberUpdatedState(onStrokesErased)
 
     // Polilínea del lazo en curso (coordenadas de documento, plana x,y).
@@ -235,124 +250,59 @@ fun InkCanvasScreen(
     // pincel de cada trazo nuevo. Se leen (.value) al iniciar el trazo dentro del
     // listener y viajan con el Stroke terminado hasta ink.bin.
     val penColorArgb = remember { mutableStateOf(PEN_COLORS.first()) }
-    val penSize = remember { mutableStateOf(PEN_SIZES[1]) }
+    val penSize = remember { mutableStateOf(DEFAULT_PEN_SIZE) }
+    // Selector de color personalizado (RF-04) abierto desde la rueda de la barra.
+    var showColorPicker by remember { mutableStateOf(false) }
+
+    // Centrado inicial (RF-09b): al conocerse el tamaño real del lienzo por
+    // primera vez, encaja la hoja centrada en vez de dejarla pegada al origen
+    // documento (0,0) en la esquina superior izquierda.
+    var centeredOnce by remember { mutableStateOf(false) }
+
+    // Barra de herramientas acoplable: borde actual, offset del arrastre en
+    // curso y centro real de la barra (para decidir el borde al soltar).
+    var dockEdge by rememberSaveable { mutableStateOf(DockEdge.TOP) }
+    var toolbarDragOffset by remember { mutableStateOf(Offset.Zero) }
+    var toolbarCenter by remember { mutableStateOf(Offset.Zero) }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
     // Palm rejection local al canvas (ver listener del FrameLayout): el resto
     // de la pantalla (título, chips, controles de página) sí responde al dedo.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
-            // Gestos táctiles de viewport (RF-09a), siempre con DOS dedos:
-            // pinch-to-zoom anclado al focal, pan con la página ampliada, y
-            // swipe horizontal para paginar con la página encajada (~1x). Un
-            // solo contacto táctil es inerte a propósito: la palma que descansa
-            // junto al pen no debe arrastrar el lienzo (RF-02). Si el primer
-            // contacto del gesto no es Touch (p. ej. el S Pen), se sale sin
-            // consumir nada: el evento sigue su curso hacia la capa wet, que ya
-            // filtra por toolType para el trazado.
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    if (down.type != PointerType.Touch) return@awaitEachGesture
-
-                    var previousDistance = 0f
-                    var previousCentroid: Offset? = null
-                    var accumSwipeX = 0f
-                    var accumSwipeY = 0f
-                    // Para detectar el tap de un dedo sobre una región linkeada
-                    // (UC-05): un solo contacto, sin arrastre, que termina en UP.
-                    var sawSecondPointer = false
-                    var movedBeyondSlop = false
-                    var endedByRelease = false
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        // S Pen apoyado: el gesto táctil se abandona entero.
-                        if (stylusIsDown.value) break
-                        val pressed = event.changes
-                            .filter { it.type == PointerType.Touch && it.pressed }
-                        if (pressed.isEmpty()) {
-                            endedByRelease = true
-                            break
-                        }
-
-                        if (pressed.size >= 2) {
-                            sawSecondPointer = true
-                            val a = pressed[0]
-                            val b = pressed[1]
-                            val centroid = (a.position + b.position) / 2f
-                            val distance = (a.position - b.position).getDistance()
-                            if (previousDistance > 0f && distance > 0f) {
-                                viewport.pinch(
-                                    focalX = centroid.x,
-                                    focalY = centroid.y,
-                                    zoomDelta = distance / previousDistance,
-                                )
-                            }
-                            val pan = previousCentroid?.let { centroid - it } ?: Offset.Zero
-                            previousDistance = distance
-                            previousCentroid = centroid
-
-                            if (viewport.isNearIdentity) {
-                                // Página encajada: el arrastre acumula para
-                                // paginar (solo si domina el eje horizontal);
-                                // no hay pan — el snap del cierre limpia
-                                // cualquier resto imperceptible.
-                                accumSwipeX += pan.x
-                                accumSwipeY += pan.y
-                                val horizontalDominant =
-                                    kotlin.math.abs(accumSwipeX) >
-                                        2f * kotlin.math.abs(accumSwipeY)
-                                if (horizontalDominant &&
-                                    kotlin.math.abs(accumSwipeX) > PAGE_SWIPE_THRESHOLD_PX
-                                ) {
-                                    onSwipePage(if (accumSwipeX < 0) 1 else -1)
-                                    pressed.forEach { it.consume() }
-                                    // Una página por gesto: se abandona el resto.
-                                    break
-                                }
-                            } else {
-                                viewport.pan(pan.x, pan.y)
-                            }
-                            pressed.forEach { it.consume() }
-                        } else {
-                            // Un solo contacto (dedo suelto o palma): inerte para
-                            // el viewport; solo se mide si se movió, para decidir
-                            // si al soltar cuenta como tap sobre un link.
-                            if ((pressed[0].position - down.position).getDistance() >
-                                LINK_TAP_SLOP_PX
-                            ) {
-                                movedBeyondSlop = true
-                            }
-                            previousDistance = 0f
-                            previousCentroid = null
-                        }
-                    }
-                    // Tap de un dedo sobre la TINTA de un link: navegar a la nota
-                    // destino. Se prueba contra la malla de los trazos (ceñido),
-                    // no contra una caja — así dos links con cajas solapadas no se
-                    // confunden. La palma se descarta porque casi siempre se mueve,
-                    // dura junto al pen (stylusIsDown) o no cae sobre un trazo.
-                    if (endedByRelease && !sawSecondPointer && !movedBeyondSlop) {
-                        val x = viewport.screenToDocumentX(down.position.x)
-                        val y = viewport.screenToDocumentY(down.position.y)
-                        val slop = LINK_TAP_SLOP_PX / viewport.scale
-                        val hitBox = ImmutableBox.fromTwoPoints(
-                            x - slop, y - slop, x + slop, y + slop,
-                        )
-                        currentLinkOverlays.value
-                            .firstOrNull { overlay ->
-                                overlay.tintStrokes.any {
-                                    it.shape.computeCoverageIsGreaterThan(hitBox, 0f)
-                                }
-                            }
-                            ?.let { currentOnLinkTap.value(it.targetUuid) }
-                    }
-                    viewport.snapToIdentityIfClose()
+            // Sin esto, la hoja (PageBackgroundLayer, dibujada con el offset del
+            // viewport) y la tinta pintan fuera de estos límites al hacer pan —
+            // Compose no clipea un Canvas a su tamaño por default — y quedan
+            // encima de la barra superior de la nota.
+            .clipToBounds()
+            .onSizeChanged { size ->
+                canvasSize = size
+                if (!centeredOnce && size.width > 0 && size.height > 0) {
+                    centeredOnce = true
+                    viewport.centerPage(
+                        pageSize.widthDoc(),
+                        pageSize.heightDoc(),
+                        size.width.toFloat(),
+                        size.height.toFloat(),
+                    )
                 }
-            },
+            }
+            // Fondo gris del lienzo (token del tema); la hoja blanca de la
+            // página se dibuja encima (RF-06a) y sigue blanca en tema oscuro.
+            .background(Theme.colors.canvasBackdrop)
+            // Los gestos táctiles de viewport (RF-09a) NO se manejan aquí: viven
+            // en el setOnTouchListener del FrameLayout de la capa wet, porque la
+            // clasificación nativa de palma (FLAG_CANCELED, toolType, touchMajor)
+            // solo existe en el MotionEvent crudo y los PointerId de Compose no
+            // mapean a los pointer id del MotionEvent. Un único punto de entrada
+            // para todo el input del canvas.
     ) {
+      // Hoja de página + fondo (RF-06/RF-06a): capa de render bajo la tinta. Usa
+      // el mismo viewport que la tinta, así hoja, líneas/cuadrícula y trazos
+      // panean y hacen zoom sin desalinearse. No es ink: intocable por lazo/goma.
+      PageBackgroundLayer(pageSize = pageSize, background = background, viewport = viewport)
+
       // Capa dry (trazos terminados, en coordenadas de documento) dentro del
       // graphicsLayer que aplica documento→pantalla. Pivote en (0,0) para que
       // la transformación visual sea exactamente `pantalla = doc*scale+offset`,
@@ -610,21 +560,138 @@ fun InkCanvasScreen(
                     lassoPoints.add(viewport.screenToDocumentY(screenY))
                 }
 
+                // ── Gestos táctiles de viewport (RF-09a/09b) ──
+                // Un dedo panea/pagina/tapea, dos hacen pinch; la palma se
+                // descarta por clasificación nativa (API 33+) o por área de
+                // contacto (pre-33). Ver TouchViewportGesture.
+
+                // True mientras el S Pen está en rango de hover sobre el canvas:
+                // capa adicional de seguridad (RF-09b) — con la mano escribiendo,
+                // ningún contacto táctil mueve el viewport.
+                var stylusInRange = false
+
+                // Umbral del heurístico pre-API 33 en px físicos de este panel.
+                val palmTouchMajorPx =
+                    PALM_TOUCH_MAJOR_MM * context.resources.displayMetrics.xdpi / 25.4f
+
+                // Hit-test de un punto de pantalla contra la TINTA de los links.
+                // Se prueba contra la malla de los trazos (ceñido), no contra
+                // una caja — así dos links con cajas solapadas no se confunden.
+                fun linkAt(screenX: Float, screenY: Float): LinkOverlay? {
+                    val x = viewport.screenToDocumentX(screenX)
+                    val y = viewport.screenToDocumentY(screenY)
+                    val slop = LINK_TAP_SLOP_PX / viewport.scale
+                    val hitBox = ImmutableBox.fromTwoPoints(
+                        x - slop, y - slop, x + slop, y + slop,
+                    )
+                    return currentLinkOverlays.value.firstOrNull { overlay ->
+                        overlay.tintStrokes.any {
+                            it.shape.computeCoverageIsGreaterThan(hitBox, 0f)
+                        }
+                    }
+                }
+
+                val touchGesture = TouchViewportGesture(
+                    viewport = viewport,
+                    onPaginate = { direction -> currentOnSwipePage.value(direction) },
+                    // Tap sobre un link: navegar al destino. Long-press: menú
+                    // contextual para eliminar el vínculo.
+                    onTap = { x, y ->
+                        linkAt(x, y)?.let { currentOnLinkTap.value(it.targetUuid) }
+                    },
+                    onLongPress = { x, y ->
+                        linkAt(x, y)?.let { currentOnLinkLongPress.value(it.targetUuid) }
+                    },
+                )
+
+                // ¿Este puntero es palma al momento del down? Algunos stacks lo
+                // reportan directo como toolType (TOOL_TYPE_PALM sigue @hide en
+                // el SDK, valor estable 5 en AOSP); antes de API 33 se estima
+                // por área de contacto. En API 33 exacto no hay señal en el
+                // down: la clasificación del sistema llega después vía
+                // FLAG_CANCELED/ACTION_CANCEL.
+                fun isPalmPointer(ev: MotionEvent, index: Int): Boolean = when {
+                    ev.getToolType(index) == TOOL_TYPE_PALM -> true
+                    Build.VERSION.SDK_INT < 33 ->
+                        ev.getTouchMajor(index) >= palmTouchMajorPx
+                    else -> false
+                }
+
+                fun handleViewportTouch(ev: MotionEvent) {
+                    val stylusActive = stylusIsDown.value || stylusInRange
+                    when (ev.actionMasked) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                            if (stylusActive) return
+                            val i = ev.actionIndex
+                            touchGesture.pointerDown(
+                                ev.getPointerId(i),
+                                ev.getX(i),
+                                ev.getY(i),
+                                isPalmPointer(ev, i),
+                            )
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (stylusActive) {
+                                // Pen apoyado o en hover: el gesto se abandona entero.
+                                touchGesture.end()
+                                return
+                            }
+                            if (Build.VERSION.SDK_INT < 33) {
+                                // Reclasificación heurística: una palma puede
+                                // aterrizar con área de dedo y crecer después.
+                                for (i in 0 until ev.pointerCount) {
+                                    if (ev.getTouchMajor(i) >= palmTouchMajorPx) {
+                                        touchGesture.pointerCanceled(ev.getPointerId(i))
+                                    }
+                                }
+                            }
+                            touchGesture.move(
+                                (0 until ev.pointerCount).map { i ->
+                                    TouchPoint(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+                                }
+                            )
+                        }
+                        MotionEvent.ACTION_POINTER_UP -> {
+                            // API 33+: FLAG_CANCELED marca el puntero que el
+                            // sistema retira por ser palma (no un dedo que sube).
+                            val id = ev.getPointerId(ev.actionIndex)
+                            val canceledAsPalm = Build.VERSION.SDK_INT >= 33 &&
+                                (ev.flags and MotionEvent.FLAG_CANCELED) != 0
+                            if (canceledAsPalm) {
+                                touchGesture.pointerCanceled(id)
+                            } else {
+                                touchGesture.pointerUp(id)
+                            }
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            if (!stylusActive) {
+                                touchGesture.pointerUp(ev.getPointerId(ev.actionIndex))
+                            }
+                            touchGesture.end()
+                        }
+                        // Cancelación del gesto completo: en API 33+ es como el
+                        // sistema descarta un contacto único ya clasificado palma.
+                        MotionEvent.ACTION_CANCEL -> touchGesture.end()
+                    }
+                }
+
                 val frame = FrameLayout(context).apply {
                     setOnTouchListener { view, event ->
-                        // Palm rejection (RF-02), acotada al canvas: solo el S Pen
-                        // dibuja o borra. Los streams de dedo/palma que caen sobre
-                        // el canvas se consumen aquí sin efecto; los controles en
-                        // Compose (título, chips, páginas) nunca pasan por este
-                        // listener y sí aceptan dedo. En Samsung el S Pen es un
-                        // dispositivo de entrada aparte: nunca comparte MotionEvent
-                        // con los dedos, basta revisar el toolType del stream. Al
-                        // no entregarse jamás punteros de dedo a InProgressStrokesView,
-                        // tampoco puede corromperse su contabilidad de punteros.
+                        // Único punto de entrada del input del canvas: el S Pen
+                        // dibuja o borra; los streams de dedo/palma van al gesto
+                        // de viewport (RF-09a) con la palma descartada por la
+                        // clasificación del sistema, y JAMÁS a
+                        // InProgressStrokesView, cuya contabilidad de punteros no
+                        // puede corromperse. Los controles en Compose (título,
+                        // chips, páginas) nunca pasan por este listener y sí
+                        // aceptan dedo. En Samsung el S Pen es un dispositivo de
+                        // entrada aparte: nunca comparte MotionEvent con los
+                        // dedos, basta revisar el toolType del stream.
                         val toolType = event.getToolType(0)
                         if (toolType != MotionEvent.TOOL_TYPE_STYLUS &&
                             toolType != MotionEvent.TOOL_TYPE_ERASER
                         ) {
+                            handleViewportTouch(event)
                             return@setOnTouchListener true
                         }
 
@@ -801,6 +868,23 @@ fun InkCanvasScreen(
                             else -> false
                         }
                     }
+                    // S Pen en rango de hover (RF-09b): mientras la punta flota
+                    // sobre el canvas, el tacto queda inerte — la mano ya está
+                    // en posición de escritura. El evento no se consume.
+                    setOnHoverListener { _, ev ->
+                        val hoverTool = ev.getToolType(0)
+                        if (hoverTool == MotionEvent.TOOL_TYPE_STYLUS ||
+                            hoverTool == MotionEvent.TOOL_TYPE_ERASER
+                        ) {
+                            when (ev.actionMasked) {
+                                MotionEvent.ACTION_HOVER_ENTER,
+                                MotionEvent.ACTION_HOVER_MOVE,
+                                -> stylusInRange = true
+                                MotionEvent.ACTION_HOVER_EXIT -> stylusInRange = false
+                            }
+                        }
+                        false
+                    }
                     addView(
                         strokesView,
                         FrameLayout.LayoutParams(
@@ -848,9 +932,16 @@ fun InkCanvasScreen(
             onRelease = { eraserRouter?.handler = null },
         )
 
-        // Barra de herramientas encima del canvas, fuera del graphicsLayer de
-        // viewport para que no escale ni se desplace con el pan/zoom (los taps
-        // le llegan primero).
+        // Barra de herramientas acoplable encima del canvas, fuera del
+        // graphicsLayer de viewport para que no escale ni se desplace con el
+        // pan/zoom (los taps le llegan primero). El asa la arrastra; al soltar
+        // se acopla al borde más cercano y se orienta según el borde.
+        val dockAlignment = when (dockEdge) {
+            DockEdge.TOP -> Alignment.TopCenter
+            DockEdge.BOTTOM -> Alignment.BottomCenter
+            DockEdge.LEFT -> Alignment.CenterStart
+            DockEdge.RIGHT -> Alignment.CenterEnd
+        }
         InkToolbar(
             selectedTool = selectedTool.value,
             temporaryEraserTool = temporaryEraserTool.value,
@@ -865,9 +956,44 @@ fun InkCanvasScreen(
             },
             onColorSelect = { penColorArgb.value = it },
             onSizeSelect = { penSize.value = it },
+            onOpenColorPicker = { showColorPicker = true },
+            vertical = dockEdge.isVertical,
+            onDrag = { delta -> toolbarDragOffset += delta },
+            onDragEnd = {
+                if (canvasSize.width > 0) {
+                    dockEdge = nearestDockEdge(toolbarCenter, canvasSize)
+                }
+                toolbarDragOffset = Offset.Zero
+            },
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp),
+                .align(dockAlignment)
+                .padding(12.dp)
+                .offset {
+                    IntOffset(
+                        toolbarDragOffset.x.roundToInt(),
+                        toolbarDragOffset.y.roundToInt(),
+                    )
+                }
+                .onGloballyPositioned { coords ->
+                    val pos = coords.positionInParent()
+                    toolbarCenter = Offset(
+                        pos.x + coords.size.width / 2f,
+                        pos.y + coords.size.height / 2f,
+                    )
+                },
         )
+
+        // RF-04: selector personalizado; el color elegido queda activo en la
+        // pluma (los presets siguen disponibles como accesos rápidos).
+        if (showColorPicker) {
+            ColorPickerDialog(
+                initialArgb = penColorArgb.value,
+                onConfirm = { argb ->
+                    penColorArgb.value = argb
+                    showColorPicker = false
+                },
+                onDismiss = { showColorPicker = false },
+            )
+        }
     }
 }
