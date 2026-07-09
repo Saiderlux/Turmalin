@@ -210,6 +210,9 @@ fun InkCanvasScreen(
     // Trazos cuyo ID desaparece de la página por la goma (borrado total). El
     // borrado parcial NO los emite: sus piezas heredan el ID (RF-05a/b).
     onStrokesErased: (List<IdStroke>) -> Unit = {},
+    // Historial deshacer/rehacer de ink (RF-37): en memoria, por sesión de
+    // página. El dueño (NoteScreen) lo reinicia al cambiar de página.
+    history: UndoHistory<List<IdStroke>> = remember { UndoHistory() },
 ) {
     val strokeRenderer = remember { CanvasStrokeRenderer.create() }
 
@@ -389,6 +392,8 @@ fun InkCanvasScreen(
                                 // capa dry, después liberar de la wet (mismo orden que
                                 // documenta la librería para evitar parpadeo). Cada
                                 // trazo nuevo recibe su ID estable aquí.
+                                // RF-37: el estado previo al trazo nuevo entra al historial.
+                                if (finished.isNotEmpty()) history.commit(strokes.toList())
                                 strokes.addAll(finished.values.map { IdStroke(newStrokeId(), it) })
                                 removeFinishedStrokes(finished.keys)
                                 if (finished.isNotEmpty()) currentOnInkModified.value()
@@ -431,7 +436,8 @@ fun InkCanvasScreen(
                 // Goma de trazo: elimina de la capa dry todo trazo cuya malla
                 // toque la caja centrada en (x, y), en coordenadas de documento.
                 // Los IDs borrados se emiten para que el link pierda esos trazos.
-                fun eraseStrokeAt(x: Float, y: Float, halfSize: Float) {
+                // Devuelve true si algo cambió (para el historial, RF-37).
+                fun eraseStrokeAt(x: Float, y: Float, halfSize: Float): Boolean {
                     val box = eraserBoxAt(x, y, halfSize)
                     val removed = ArrayList<IdStroke>()
                     strokes.removeAll { item ->
@@ -443,6 +449,7 @@ fun InkCanvasScreen(
                         currentOnInkModified.value()
                         currentOnStrokesErased.value(removed)
                     }
+                    return removed.isNotEmpty()
                 }
 
                 // Distancia² del punto (px, py) al segmento (ax, ay)→(bx, by).
@@ -527,7 +534,8 @@ fun InkCanvasScreen(
                 // piezas HEREDAN el ID del padre → el link no se pierde por un
                 // recorte parcial. Solo si el trazo se borra entero (sin piezas)
                 // su ID desaparece y se emite para el borrado de link (RF-05a/b).
-                fun erasePartialAt(x: Float, y: Float, halfSize: Float) {
+                // Devuelve true si algo cambió (para el historial, RF-37).
+                fun erasePartialAt(x: Float, y: Float, halfSize: Float): Boolean {
                     val box = eraserBoxAt(x, y, halfSize)
                     var changed = false
                     val removed = ArrayList<IdStroke>()
@@ -546,7 +554,14 @@ fun InkCanvasScreen(
                     }
                     if (changed) currentOnInkModified.value()
                     if (removed.isNotEmpty()) currentOnStrokesErased.value(removed)
+                    return changed
                 }
+
+                // Estado de la página al empezar el gesto de goma vigente, para
+                // el historial (RF-37): un gesto completo (pen down→up) es UN
+                // paso, no uno por evento de movimiento. Se captura perezoso en
+                // el primer evento que de verdad muta la tinta.
+                var eraseGestureBefore: List<IdStroke>? = null
 
                 // Recibe coordenadas de pantalla (las del MotionEvent) y las
                 // convierte a documento; la caja de la goma también se escala
@@ -555,11 +570,20 @@ fun InkCanvasScreen(
                     val x = viewport.screenToDocumentX(screenX)
                     val y = viewport.screenToDocumentY(screenY)
                     val halfSize = ERASER_HALF_SIZE_PX / viewport.scale
-                    when (tool) {
+                    val before = if (eraseGestureBefore == null) strokes.toList() else null
+                    val changed = when (tool) {
                         Tool.ERASER_STROKE -> eraseStrokeAt(x, y, halfSize)
                         Tool.ERASER_PARTIAL -> erasePartialAt(x, y, halfSize)
-                        Tool.PEN, Tool.LASSO -> Unit
+                        Tool.PEN, Tool.LASSO -> false
                     }
+                    if (changed && before != null) eraseGestureBefore = before
+                }
+
+                // Cierra el gesto de goma: si borró algo, el estado previo entra
+                // al historial como un único paso (RF-37).
+                fun commitEraseGesture() {
+                    eraseGestureBefore?.let { history.commit(it) }
+                    eraseGestureBefore = null
                 }
 
                 // Añade el punto del MotionEvent (pantalla) al lazo en curso,
@@ -862,6 +886,7 @@ fun InkCanvasScreen(
                                     currentOnLassoComplete.value(lassoPoints.toList())
                                 }
                                 lassoPoints.clear()
+                                commitEraseGesture()
                                 temporaryEraserTool.value = null
                                 stylusIsDown.value = false
                                 true
@@ -870,6 +895,9 @@ fun InkCanvasScreen(
                                 currentStrokeId?.let { strokesView.cancelStroke(it, event) }
                                 currentStrokeId = null
                                 lassoPoints.clear()
+                                // Los borrados ya aplicados no se revierten por el
+                                // cancel: el paso del historial se cierra igual.
+                                commitEraseGesture()
                                 temporaryEraserTool.value = null
                                 stylusIsDown.value = false
                                 true
@@ -931,6 +959,7 @@ fun InkCanvasScreen(
                             eraseAt(tool, ev.x - loc[0], ev.y - loc[1])
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            commitEraseGesture()
                             temporaryEraserTool.value = null
                         }
                     }
@@ -956,6 +985,24 @@ fun InkCanvasScreen(
             temporaryEraserTool = temporaryEraserTool.value,
             penColorArgb = penColorArgb.value,
             penSize = penSize.value,
+            canUndo = history.canUndo,
+            canRedo = history.canRedo,
+            // RF-37: deshacer/rehacer restauran la instantánea y encienden el
+            // dirty flag de tinta (el contenido de la página sí cambió).
+            onUndo = {
+                history.undo(strokes.toList())?.let { previous ->
+                    strokes.clear()
+                    strokes.addAll(previous)
+                    onInkModified()
+                }
+            },
+            onRedo = {
+                history.redo(strokes.toList())?.let { next ->
+                    strokes.clear()
+                    strokes.addAll(next)
+                    onInkModified()
+                }
+            },
             onToolSelect = { tool ->
                 selectedTool.value = tool
                 // El atajo del botón del S Pen solo recuerda gomas (RF-05c).

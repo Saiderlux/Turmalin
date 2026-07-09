@@ -83,6 +83,12 @@ fun InkToolbar(
     temporaryEraserTool: Tool?,
     penColorArgb: Int,
     penSize: Float,
+    // RF-37: deshacer/rehacer de ink desde la barra (sin gestos táctiles, que
+    // chocarían con el pan/zoom de RF-09a/09b). Atenuados sin pasos disponibles.
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onToolSelect: (Tool) -> Unit,
     onColorSelect: (Int) -> Unit,
     onSizeSelect: (Float) -> Unit,
@@ -119,6 +125,8 @@ fun InkToolbar(
             selected = highlightedTool == Tool.LASSO,
             onClick = { onToolSelect(Tool.LASSO) },
         )
+        HistoryButton(label = "↶", enabled = canUndo, onClick = onUndo)
+        HistoryButton(label = "↷", enabled = canRedo, onClick = onRedo)
     }
 
     // Paleta de color y grosor: solo relevante mientras se escribe. Los
@@ -192,6 +200,29 @@ fun InkToolbar(
                 }
             }
         }
+    }
+}
+
+/** Botón de deshacer/rehacer (RF-37): atenuado cuando no hay pasos que aplicar. */
+@Composable
+private fun HistoryButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = Theme.colors
+    Box(
+        modifier = Modifier
+            .padding(3.dp)
+            .size(30.dp)
+            .clip(CircleShape)
+            .border(1.dp, colors.outlineVariant, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            text = label,
+            style = TextStyle(
+                color = if (enabled) colors.textPrimary else colors.disabled,
+                fontSize = AppType.title,
+            ),
+        )
     }
 }
 

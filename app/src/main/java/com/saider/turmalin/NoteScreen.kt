@@ -108,6 +108,12 @@ fun NoteScreen(
     var currentPage by remember { mutableStateOf(initialPage) }
     val initialLoaded = remember { repo.loadStrokes(meta.uuid, initialPage, brush) }
     val strokes = remember { mutableStateListOf<IdStroke>().apply { addAll(initialLoaded) } }
+    // Historial deshacer/rehacer de ink (RF-37): solo en memoria, nace vacío al
+    // abrir la nota y se reinicia al cambiar de página.
+    // ponytail: historial por página visitada — deshacer a través de páginas
+    // requeriría recargar y navegar páginas ya persistidas; añadir si el uso
+    // real lo pide.
+    val inkHistory = remember { UndoHistory<List<IdStroke>>() }
     // Versión más completa conocida de cada trazo en esta sesión (por ID), para
     // restaurar un link al deshacer su borrado. Se llena al abrir la página y al
     // crear un link (nunca se sobrescribe con piezas recortadas), así "Deshacer"
@@ -287,6 +293,7 @@ fun NoteScreen(
         strokes.addAll(loaded)
         fullStrokeById.clear()
         fullStrokeById.putAll(loaded.associateBy { it.id })
+        inkHistory.clear()
     }
 
     // Recalcula la bbox cacheada de cada link desde sus trazos vivos (tras
@@ -330,6 +337,7 @@ fun NoteScreen(
         currentPage = pageCount - 1
         strokes.clear()
         fullStrokeById.clear()
+        inkHistory.clear()
         repo.saveMeta(snapshotMeta())
     }
 
@@ -459,6 +467,7 @@ fun NoteScreen(
         Box(modifier = Modifier.weight(1f)) {
             InkCanvasScreen(
                 strokes = strokes,
+                history = inkHistory,
                 wetHighLatency = wetHighLatency,
                 eraserRouter = eraserRouter,
                 background = paper,
