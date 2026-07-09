@@ -63,7 +63,6 @@ fun suggestedPdfFileName(title: String, nowMillis: Long): String {
 class PdfExporter(private val context: Context) {
 
     private val renderer = CanvasStrokeRenderer.create()
-    private val linkBrush = linkOverlayBrush()
     // Aporta familia (pressurePen) y epsilon al reconstruir los pinceles al leer
     // ink.bin; el color y grosor reales vienen del archivo.
     private val baseBrush = defaultBlackPen()
@@ -113,7 +112,7 @@ class PdfExporter(private val context: Context) {
         // 2. Overlay de links (RF-23a/RF-29) debajo de la tinta.
         for (link in links) {
             for (item in strokes.filter { it.id in link.strokeIds }) {
-                renderer.draw(canvas, Stroke(linkBrush, item.stroke.inputs), identity)
+                renderer.draw(canvas, linkTintStroke(item.stroke), identity)
             }
         }
         // 3. Tinta encima.

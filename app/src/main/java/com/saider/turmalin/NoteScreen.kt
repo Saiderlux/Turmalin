@@ -115,8 +115,6 @@ fun NoteScreen(
     val fullStrokeById = remember {
         mutableStateMapOf<Long, IdStroke>().apply { putAll(initialLoaded.associateBy { it.id }) }
     }
-    // Pincel del halo de link (RF-23a); constante por sesión.
-    val linkBrush = remember { linkOverlayBrush() }
     // El placeholder "Sin título" nunca entra al campo: para notas sin titular
     // el campo inicia vacío y el placeholder es solo el hint de la decoración.
     // Mutarlo al enfocar pierde contra el snapshot con que arranca la sesión del
@@ -229,7 +227,7 @@ fun NoteScreen(
         if (targets.isEmpty()) return@mapNotNull null
         LinkOverlay(
             targetUuid = link.targetUuid,
-            tintStrokes = targets.map { Stroke(linkBrush, it.stroke.inputs) },
+            tintStrokes = targets.map { linkTintStroke(it.stroke) },
         )
     }
 

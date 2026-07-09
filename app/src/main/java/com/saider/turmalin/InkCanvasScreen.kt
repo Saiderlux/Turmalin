@@ -68,9 +68,11 @@ private const val TOOL_TYPE_PALM = 5
 // de la paleta de plumas del usuario. Halo semitransparente ceñido a la tinta.
 val LINK_OVERLAY_COLOR = Color(0x553D5AFE)
 
-// Grosor del halo del overlay: mayor que la tinta (4f) para que asome ceñido
-// alrededor de los trazos linkeados en vez de quedar tapado por ellos.
-private const val LINK_OVERLAY_SIZE = 14f
+// Margen del halo del overlay sobre el grosor del trazo entintado: el halo
+// mide SIEMPRE el grosor del ink + este margen, para asomar ceñido alrededor
+// de la tinta a cualquier grosor de pluma — con un grosor fijo, un trazo más
+// grueso que el halo lo tapaba por completo.
+private const val LINK_OVERLAY_MARGIN = 10f
 
 // Contorno del lazo mientras se dibuja (mismo color base, opaco).
 private val LASSO_STROKE_COLOR = Color(0xFF3D5AFE)
@@ -86,12 +88,19 @@ data class LinkOverlay(
     val tintStrokes: List<Stroke>,
 )
 
-/** Pincel del halo de link: color reservado, semitransparente, grueso. */
-fun linkOverlayBrush(): Brush = Brush.createWithColorIntArgb(
-    family = StockBrushes.pressurePen(StockBrushes.PressurePenVersion.LATEST),
-    colorIntArgb = LINK_OVERLAY_COLOR.toArgb(),
-    size = LINK_OVERLAY_SIZE,
-    epsilon = 0.1f,
+/**
+ * Trazo de halo para un trazo linkeado: mismo recorrido, color reservado
+ * semitransparente, grosor del ink + [LINK_OVERLAY_MARGIN]. Único constructor
+ * del tinte (pantalla y PDF): el halo nunca queda tapado por tinta gruesa.
+ */
+fun linkTintStroke(inkStroke: Stroke): Stroke = Stroke(
+    Brush.createWithColorIntArgb(
+        family = StockBrushes.pressurePen(StockBrushes.PressurePenVersion.LATEST),
+        colorIntArgb = LINK_OVERLAY_COLOR.toArgb(),
+        size = inkStroke.brush.size + LINK_OVERLAY_MARGIN,
+        epsilon = 0.1f,
+    ),
+    inkStroke.inputs,
 )
 
 /** Ray casting: ¿el punto (x, y) cae dentro del polígono plano [x0,y0,x1,y1,…]? */
