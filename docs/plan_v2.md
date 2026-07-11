@@ -15,11 +15,13 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** además del lápiz actual (pressurePen), sumar familias de trazo tipo pluma (línea fina, poca variación de presión) y pincel (variación de grosor marcada según presión/velocidad).
 **Por qué:** GoodNotes 6 y Samsung Notes ofrecen 3 tipos base (bolígrafo, pluma, pincel) como estándar de la categoría; es el gap más citado por usuarios que migran desde esas apps.
 **Complejidad:** M. `androidx.ink` ya expone `BrushFamily` con perfiles de textura distintos (ver decisión 7 del doc de requerimientos sobre cómo el pincel vive en `ink.bin` v2) — el trabajo es sumar un campo de familia al formato existente, no un motor de renderizado nuevo.
+**Estado:** ✅ implementado (jul 2026) — ink.bin v3 con familia por trazo (v2 se sigue leyendo como lápiz, sin romper notas); chips Lápiz (pressurePen) / Pluma (marker). El "pincel" queda pospuesto: en androidx.ink 1.0.0 solo existe como `pencilUnstable` experimental — retomar cuando la librería lo estabilice.
 
 ### 1.2 Marcatextos (highlighter)
 **Qué:** herramienta de resaltado con blend de transparencia (multiply o similar) que no oculta el trazo/texto debajo.
 **Por qué:** excluido explícitamente del MVP (sección 2); estándar en toda app de notas manuscritas competidora.
 **Complejidad:** M. Requiere modo de blend distinto al de tinta normal en el renderer y una decisión de capa: ¿vive en `ink.bin` (es tinta) o en `annotations.json` (es anotación sobre ink existente)? Recomendación: vive en `ink.bin` como un `Brush` más con blend mode "highlighter" — es trazo del usuario, no metadata, igual que la decisión ya tomada para color/grosor.
+**Estado:** ✅ implementado (jul 2026) — herramienta propia con familia highlighter de StockBrushes, tinta translúcida en ink.bin (alpha fijo con el color), color/grosor independientes de la pluma, y sus trazos excluidos del OCR.
 
 ### 1.3 Grosor con input numérico además del slider
 **Qué:** junto al slider continuo de grosor (RF-03), un campo numérico editable para escribir el valor exacto en mm o pt.
@@ -47,6 +49,7 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** el usuario define una combinación de fondo (líneas/cuadrícula/puntos + espaciado + tamaño de página) y la guarda como preset con nombre propio (ej. "Apuntes de clase", "Diagramas técnicos"). Al crear una nota nueva, puede elegir un preset en vez de reconfigurar cada vez.
 **Por qué:** pedido explícito del usuario ("plantillas personalizadas... tipos de notas con su tamaño de cuadros o rayas"); ni GoodNotes ni Samsung Notes separan bien "preset reutilizable" de "plantilla decorativa" — es una oportunidad real de diferenciación, no solo paridad.
 **Complejidad:** M. Nuevo archivo `templates.json` en el vault (mismo patrón que `settings.json`), CRUD simple de presets, y un paso opcional en el flujo de "nueva nota" que sigue sin bloquear la escritura inmediata (una nota nueva sin preset elegido sigue iniciando en Carta + blanco por default, ver RF-06a/RF-07 — el preset es atajo, nunca paso obligatorio).
+**Estado:** ✅ implementado (jul 2026) — "Guardar plantilla" en los ajustes de página; long-press en el FAB "+" crea desde el preset (el tap normal sigue siendo nota inmediata).
 
 ---
 
@@ -111,12 +114,12 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 
 | Sección | Ítem | Complejidad | Estado |
 |---|---|---|---|
-| 1. Escritura | 1.1 Tipos de lápiz | M | pendiente |
-| | 1.2 Marcatextos | M | pendiente |
+| 1. Escritura | 1.1 Tipos de lápiz | M | ✅ hecho (pincel pospuesto) |
+| | 1.2 Marcatextos | M | ✅ hecho |
 | | 1.3 Grosor numérico | S | ✅ hecho |
 | 2. Papel/plantillas | 2.1 Puntos | S | ✅ hecho |
 | | 2.2 Tamaño numérico | S | ✅ ya existía en v1 |
-| | 2.3 Plantillas guardables | M | pendiente |
+| | 2.3 Plantillas guardables | M | ✅ hecho |
 | 3. UX/UI | 3.1 Iconos | S | ✅ hecho |
 | | 3.2 Revisión UX/UI general | L (depende del resto) | pendiente |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
