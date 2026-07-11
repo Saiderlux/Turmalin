@@ -40,8 +40,10 @@ data class NoteMeta(
     // Páginas de la nota (RF-09) y última página abierta (RF-09a).
     val pageCount: Int = 1,
     val lastPageIndex: Int = 0,
-    // Cuaderno al que pertenece (RF-14); null = raíz del vault.
-    val notebookId: String? = null,
+    // Cuadernos en los que aparece la nota (RF-14, v2 4.4): el cuaderno es una
+    // colección, no una carpeta exclusiva — la nota puede listarse en varios
+    // sin duplicar archivo ni UUID. Vacía = raíz del vault.
+    val notebookIds: List<String> = emptyList(),
     // Tags manuales por teclado (RF-16): la búsqueda de la galería los indexa
     // junto al título y al texto OCR.
     val tags: List<String> = emptyList(),
@@ -80,6 +82,18 @@ fun resolvePageSizes(json: JSONObject, pageCount: Int): List<PageSize> {
         heightMm = json.optDouble("pageHeightMm", DEFAULT_PAGE_SIZE.heightMm.toDouble()).toFloat(),
     )
     return List(pageCount) { legacy }
+}
+
+/**
+ * Cuadernos de la nota desde meta.json (v2 4.4). Clave nueva `notebookIds`
+ * (array); ausente ⇒ migración de lectura: la clave legacy `notebookId` (string
+ * único) como lista de un elemento, o vacía si tampoco existe. Función pura
+ * para testear la migración en JVM.
+ */
+fun resolveNotebookIds(json: JSONObject): List<String> {
+    val array = json.optJSONArray("notebookIds")
+    if (array != null) return List(array.length()) { array.getString(it) }
+    return listOfNotNull(json.optString("notebookId").ifEmpty { null })
 }
 
 /**
@@ -184,7 +198,7 @@ class NoteRepository(context: Context) {
             .mapNotNull { readMeta(it) }
             .sortedByDescending { it.modifiedAtMillis }
 
-    fun createNote(notebookId: String? = null): NoteMeta {
+    fun createNote(notebookIds: List<String> = emptyList()): NoteMeta {
         val now = System.currentTimeMillis()
         val meta = NoteMeta(
             uuid = UUID.randomUUID().toString(),
@@ -192,15 +206,15 @@ class NoteRepository(context: Context) {
             createdAtMillis = now,
             modifiedAtMillis = now,
             titleNudgeCount = 0,
-            notebookId = notebookId,
+            notebookIds = notebookIds,
         )
         saveMeta(meta)
         return meta
     }
 
-    /** Mueve la nota a otro cuaderno (RF-14) — solo reescribe su meta.json. */
-    fun moveNote(meta: NoteMeta, notebookId: String?): NoteMeta {
-        val moved = meta.copy(notebookId = notebookId)
+    /** Reasigna los cuadernos de la nota (RF-14, v2 4.4) — solo reescribe su meta.json. */
+    fun setNotebooks(meta: NoteMeta, notebookIds: List<String>): NoteMeta {
+        val moved = meta.copy(notebookIds = notebookIds.distinct())
         saveMeta(moved)
         return moved
     }
@@ -273,12 +287,13 @@ class NoteRepository(context: Context) {
         saveNotebooks(listNotebooks().map { if (it.id == id) it.copy(name = name) else it })
     }
 
-    /** Elimina el cuaderno; sus notas pasan a la raíz — nunca se borra una nota. */
+    /** Elimina el cuaderno; las notas solo pierden esa pertenencia (las que
+     *  queden sin cuadernos caen a la raíz) — nunca se borra una nota. */
     fun deleteNotebook(id: String) {
         saveNotebooks(listNotebooks().filterNot { it.id == id })
         listNotes()
-            .filter { it.notebookId == id }
-            .forEach { saveMeta(it.copy(notebookId = null)) }
+            .filter { id in it.notebookIds }
+            .forEach { saveMeta(it.copy(notebookIds = it.notebookIds - id)) }
     }
 
     private fun saveNotebooks(notebooks: List<Notebook>) {
@@ -543,7 +558,8 @@ class NoteRepository(context: Context) {
                     }
                 },
             )
-        meta.notebookId?.let { json.put("notebookId", it) }
+        // Clave nueva v2 4.4; la legacy `notebookId` ya no se escribe.
+        if (meta.notebookIds.isNotEmpty()) json.put("notebookIds", JSONArray(meta.notebookIds))
         meta.deletedAtMillis?.let { json.put("deletedAtMillis", it) }
         File(dir, "meta.json").writeText(json.toString())
     }
@@ -561,7 +577,8 @@ class NoteRepository(context: Context) {
                 titleNudgeCount = json.optInt("titleNudgeCount", 0),
                 pageCount = json.optInt("pageCount", 1),
                 lastPageIndex = json.optInt("lastPageIndex", 0),
-                notebookId = json.optString("notebookId").ifEmpty { null },
+                // Array nuevo; ausente ⇒ migra la clave legacy de cuaderno único.
+                notebookIds = resolveNotebookIds(json),
                 tags = json.optJSONArray("tags")?.let { arr ->
                     List(arr.length()) { arr.getString(it) }
                 } ?: emptyList(),

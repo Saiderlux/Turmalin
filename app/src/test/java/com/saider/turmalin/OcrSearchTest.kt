@@ -6,14 +6,14 @@ import org.junit.Test
 
 class OcrSearchTest {
 
-    private fun note(uuid: String, title: String = uuid, notebookId: String? = null) =
+    private fun note(uuid: String, title: String = uuid, notebookIds: List<String> = emptyList()) =
         NoteMeta(
             uuid = uuid,
             title = title,
             createdAtMillis = 0,
             modifiedAtMillis = 0,
             titleNudgeCount = 0,
-            notebookId = notebookId,
+            notebookIds = notebookIds,
         )
 
     @Test
@@ -50,7 +50,7 @@ class OcrSearchTest {
     @Test
     fun `consulta en blanco vuelve al filtrado por cuaderno`() {
         val state = GalleryUiState(
-            notes = listOf(note("a"), note("b", notebookId = "x")),
+            notes = listOf(note("a"), note("b", notebookIds = listOf("x"))),
             query = "   ",
         )
         assertEquals(listOf("a", "b"), galleryNotes(state).map { it.uuid }.sorted())

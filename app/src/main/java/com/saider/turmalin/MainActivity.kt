@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.renameNotebook(notebook.id, name)
                     },
                     onDeleteNotebook = { notebook -> viewModel.deleteNotebook(notebook.id) },
-                    onMoveNote = viewModel::moveNote,
+                    onSetNotebooks = viewModel::setNotebooks,
                     onOpenGraph = { showGraph = true },
                     onOpenTrash = { showTrash = true },
                     onDeleteNote = viewModel::deleteNote,

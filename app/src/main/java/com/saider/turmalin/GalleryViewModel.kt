@@ -64,18 +64,23 @@ fun galleryNotes(state: GalleryUiState): List<NoteMeta> {
     } else {
         val knownIds = state.notebooks.map { it.id }.toSet()
         state.notes.filter { note ->
-            val effectiveId = note.notebookId?.takeIf { it in knownIds }
-            effectiveId == state.openNotebookId
+            // Multi-pertenencia (v2 4.4): ids huérfanos se ignoran; sin ninguno
+            // conocido la nota cae a la raíz — nunca desaparece de la UI.
+            val effectiveIds = note.notebookIds.filter { it in knownIds }
+            if (state.openNotebookId == null) effectiveIds.isEmpty()
+            else state.openNotebookId in effectiveIds
         }
     }
     val nameById = state.notebooks.associate { it.id to it.name }
     return when (state.sortOrder) {
         SortOrder.MODIFIED -> visible.sortedByDescending { it.modifiedAtMillis }
         SortOrder.TITLE -> visible.sortedBy { it.title.lowercase() }
-        // Dentro de un cuaderno todas comparten cuaderno: cae al orden por título.
+        // Por el nombre alfabéticamente menor de sus cuadernos (v2 4.4); las
+        // notas sin cuaderno caen al final vía nullsLast y desempatan por título.
         SortOrder.NOTEBOOK -> visible.sortedWith(
-            compareBy<NoteMeta> { nameById[it.notebookId]?.lowercase() ?: "" }
-                .thenBy { it.title.lowercase() }
+            compareBy(nullsLast<String>()) { note: NoteMeta ->
+                note.notebookIds.mapNotNull { nameById[it]?.lowercase() }.minOrNull()
+            }.thenBy { it.title.lowercase() }
         )
         // Por la etiqueta alfabéticamente menor de cada nota (RF-15); las notas
         // sin tags (clave null) caen al final vía nullsLast y se desempata por título.
@@ -242,7 +247,7 @@ class GalleryViewModel(
 
     /** UC-01: crea la nota (en el cuaderno abierto, o raíz) y devuelve su meta. */
     fun createNote(): NoteMeta {
-        val meta = repo.createNote(notebookId = _state.value.openNotebookId)
+        val meta = repo.createNote(notebookIds = listOfNotNull(_state.value.openNotebookId))
         refresh()
         return meta
     }
@@ -264,8 +269,8 @@ class GalleryViewModel(
         refresh()
     }
 
-    fun moveNote(meta: NoteMeta, notebookId: String?) {
-        repo.moveNote(meta, notebookId)
+    fun setNotebooks(meta: NoteMeta, notebookIds: List<String>) {
+        repo.setNotebooks(meta, notebookIds)
         refresh()
     }
 

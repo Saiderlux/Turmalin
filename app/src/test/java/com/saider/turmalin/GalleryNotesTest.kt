@@ -9,7 +9,7 @@ class GalleryNotesTest {
         uuid: String,
         title: String = uuid,
         modified: Long = 0,
-        notebookId: String? = null,
+        notebookIds: List<String> = emptyList(),
         tags: List<String> = emptyList(),
     ) = NoteMeta(
         uuid = uuid,
@@ -17,7 +17,7 @@ class GalleryNotesTest {
         createdAtMillis = 0,
         modifiedAtMillis = modified,
         titleNudgeCount = 0,
-        notebookId = notebookId,
+        notebookIds = notebookIds,
         tags = tags,
     )
 
@@ -27,7 +27,7 @@ class GalleryNotesTest {
     @Test
     fun `raiz muestra solo notas sin cuaderno`() {
         val state = GalleryUiState(
-            notes = listOf(note("a"), note("b", notebookId = work.id)),
+            notes = listOf(note("a"), note("b", notebookIds = listOf(work.id))),
             notebooks = listOf(work),
         )
         assertEquals(listOf("a"), galleryNotes(state).map { it.uuid })
@@ -36,7 +36,7 @@ class GalleryNotesTest {
     @Test
     fun `cuaderno abierto muestra solo sus notas`() {
         val state = GalleryUiState(
-            notes = listOf(note("a"), note("b", notebookId = work.id)),
+            notes = listOf(note("a"), note("b", notebookIds = listOf(work.id))),
             notebooks = listOf(work),
             openNotebookId = work.id,
         )
@@ -46,10 +46,19 @@ class GalleryNotesTest {
     @Test
     fun `notebookId huerfano cae a la raiz`() {
         val state = GalleryUiState(
-            notes = listOf(note("a", notebookId = "cuaderno-borrado")),
+            notes = listOf(note("a", notebookIds = listOf("cuaderno-borrado"))),
             notebooks = emptyList(),
         )
         assertEquals(listOf("a"), galleryNotes(state).map { it.uuid })
+    }
+
+    @Test
+    fun `nota en dos cuadernos aparece en ambos y no en la raiz`() {
+        val notes = listOf(note("a", notebookIds = listOf(work.id, ideas.id)))
+        val base = GalleryUiState(notes = notes, notebooks = listOf(work, ideas))
+        assertEquals(emptyList<String>(), galleryNotes(base).map { it.uuid })
+        assertEquals(listOf("a"), galleryNotes(base.copy(openNotebookId = work.id)).map { it.uuid })
+        assertEquals(listOf("a"), galleryNotes(base.copy(openNotebookId = ideas.id)).map { it.uuid })
     }
 
     @Test

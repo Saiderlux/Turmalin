@@ -54,7 +54,7 @@ private sealed interface GalleryDialog {
     data class NotebookActions(val notebook: Notebook) : GalleryDialog
     data class RenameNotebook(val notebook: Notebook) : GalleryDialog
     data class NoteActions(val note: NoteMeta) : GalleryDialog
-    data class MoveNote(val note: NoteMeta) : GalleryDialog
+    data class NoteNotebooks(val note: NoteMeta) : GalleryDialog
 }
 
 /**
@@ -76,7 +76,7 @@ fun GalleryScreen(
     onCreateNotebook: (String) -> Unit,
     onRenameNotebook: (Notebook, String) -> Unit,
     onDeleteNotebook: (Notebook) -> Unit,
-    onMoveNote: (NoteMeta, String?) -> Unit,
+    onSetNotebooks: (NoteMeta, List<String>) -> Unit,
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
     onDeleteNote: (NoteMeta) -> Unit,
@@ -133,7 +133,7 @@ fun GalleryScreen(
                         items(state.notebooks, key = { "notebook-${it.id}" }) { notebook ->
                             NotebookCard(
                                 notebook = notebook,
-                                noteCount = state.notes.count { it.notebookId == notebook.id },
+                                noteCount = state.notes.count { notebook.id in it.notebookIds },
                                 onOpen = { onOpenNotebook(notebook.id) },
                                 onLongPress = {
                                     dialog = GalleryDialog.NotebookActions(notebook)
@@ -235,20 +235,17 @@ fun GalleryScreen(
         )
         is GalleryDialog.NoteActions -> NoteActionsDialog(
             note = current.note,
-            onMove = { dialog = GalleryDialog.MoveNote(current.note) },
+            onMove = { dialog = GalleryDialog.NoteNotebooks(current.note) },
             onDelete = {
                 onDeleteNote(current.note)
                 dialog = null
             },
             onDismiss = { dialog = null },
         )
-        is GalleryDialog.MoveNote -> MoveNoteDialog(
+        is GalleryDialog.NoteNotebooks -> NoteNotebooksDialog(
             note = current.note,
             notebooks = state.notebooks,
-            onMove = { notebookId ->
-                onMoveNote(current.note, notebookId)
-                dialog = null
-            },
+            onSetNotebooks = { ids -> onSetNotebooks(current.note, ids) },
             onDismiss = { dialog = null },
         )
     }
@@ -643,7 +640,7 @@ private fun NotebookActionsDialog(
     }
 }
 
-/** Acciones de nota desde la galería (RF-14/RF-36): mover o eliminar. */
+/** Acciones de nota desde la galería (RF-14/RF-36): cuadernos o eliminar. */
 @Composable
 private fun NoteActionsDialog(
     note: NoteMeta,
@@ -654,36 +651,52 @@ private fun NoteActionsDialog(
     Dialog(onDismissRequest = onDismiss) {
         DialogSurface {
             DialogTitle(note.title)
-            DialogOption(label = "Mover a cuaderno", onClick = onMove)
+            DialogOption(label = "Cuadernos…", onClick = onMove)
             // RF-36: reversible (papelera + deshacer), sin diálogo de confirmación.
             DialogOption(label = "Eliminar", onClick = onDelete, danger = true)
         }
     }
 }
 
-/** Mover una nota entre cuadernos (RF-14). */
+/**
+ * Cuadernos de una nota (RF-14, v2 4.4): multi-select — el cuaderno es una
+ * colección, la nota puede pertenecer a varios. Cada toggle aplica en vivo;
+ * sin ninguno marcado la nota vive en la raíz (no hay opción "Raíz" explícita).
+ */
 @Composable
-private fun MoveNoteDialog(
+private fun NoteNotebooksDialog(
     note: NoteMeta,
     notebooks: List<Notebook>,
-    onMove: (String?) -> Unit,
+    onSetNotebooks: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val colors = Theme.colors
+    // Estado local: la nota del llamador queda obsoleta tras el primer toggle
+    // (el refresh de la galería no re-emite este diálogo).
+    var selected by remember { mutableStateOf(note.notebookIds.toSet()) }
     Dialog(onDismissRequest = onDismiss) {
         DialogSurface {
-            DialogTitle("Mover «${note.title}» a…")
-            if (note.notebookId != null) {
-                DialogOption(label = "Raíz del vault", onClick = { onMove(null) })
-            }
-            val destinations = notebooks.filterNot { it.id == note.notebookId }
-            destinations.forEach { notebook ->
-                DialogOption(label = notebook.name, onClick = { onMove(notebook.id) })
-            }
-            if (destinations.isEmpty() && note.notebookId == null) {
+            DialogTitle("Cuadernos de «${note.title}»")
+            if (notebooks.isEmpty()) {
                 BasicText(
                     text = "No hay cuadernos todavía",
-                    style = TextStyle(color = Theme.colors.textSecondary, fontSize = AppType.body),
+                    style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
                 )
+            }
+            notebooks.forEach { notebook ->
+                AppChip(
+                    label = notebook.name,
+                    selected = notebook.id in selected,
+                    onClick = {
+                        selected = if (notebook.id in selected) selected - notebook.id
+                        else selected + notebook.id
+                        onSetNotebooks(selected.toList())
+                    },
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            Row(modifier = Modifier.align(Alignment.End)) {
+                AppButton(label = "Cerrar", onClick = onDismiss, style = ButtonStyle.TEXT)
             }
         }
     }
