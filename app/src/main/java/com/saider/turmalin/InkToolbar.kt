@@ -147,7 +147,8 @@ fun InkToolbar(
         )
     }
 
-    // Grosor continuo (RF-03): slider + punto de vista previa del grosor actual.
+    // Grosor continuo (RF-03): slider + punto de vista previa del grosor actual,
+    // más campo numérico (v2 1.3) para repetir un valor exacto entre sesiones.
     val sizeSlider: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SizePreviewDot(size = penSize, colorArgb = penColorArgb)
@@ -160,6 +161,13 @@ fun InkToolbar(
                     onCommit = {},
                 )
             }
+            NumberField(
+                value = penSize,
+                range = PEN_SIZE_RANGE,
+                onValue = onSizeSelect,
+                decimals = 1,
+                modifier = Modifier.width(56.dp).padding(start = 6.dp),
+            )
         }
     }
 

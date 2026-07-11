@@ -101,7 +101,7 @@ fun presetNameFor(size: PageSize): String? =
 
 /** Sanea una dimensión mm tecleada por el usuario: no parseable ⇒ [fallback]. */
 fun coercePageMm(text: String, fallback: Float): Float =
-    (text.trim().toFloatOrNull() ?: fallback).coerceIn(PAGE_MM_RANGE.start, PAGE_MM_RANGE.endInclusive)
+    coerceToRange(text, fallback, PAGE_MM_RANGE)
 
 // Borde tenue de la hoja. El fondo gris alrededor de la hoja es token del tema
 // (AppColors.canvasBackdrop); la hoja sigue blanca también en tema oscuro: la

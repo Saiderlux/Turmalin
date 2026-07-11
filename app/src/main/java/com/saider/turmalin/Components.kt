@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * Sistema de componentes compartidos (heurística 4 del informe): un solo botón
@@ -158,6 +162,53 @@ fun StatusChip(text: String, modifier: Modifier = Modifier) {
             .background(colors.surfaceVariant, RoundedCornerShape(16.dp))
             .border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+// --- Campo numérico compartido (RF-06a, v2 1.3) ---
+
+/** Sanea un número tecleado: acepta coma decimal, no parseable ⇒ [fallback],
+ *  siempre acotado a [range]. Función pura para testear en JVM. */
+fun coerceToRange(text: String, fallback: Float, range: ClosedFloatingPointRange<Float>): Float =
+    (text.trim().replace(',', '.').toFloatOrNull() ?: fallback)
+        .coerceIn(range.start, range.endInclusive)
+
+private fun formatNumber(value: Float, decimals: Int): String =
+    if (decimals == 0) value.roundToInt().toString()
+    else String.format(java.util.Locale.US, "%.${decimals}f", value)
+
+/**
+ * Campo numérico de un valor acotado (tamaño de página RF-06a, grosor de trazo
+ * v2 1.3). El texto tecleado se conserva libre para no pelear con el usuario
+ * mientras escribe; solo se proyecta al valor (coercido a [range]) al cambiar.
+ * Si el valor cambia desde fuera (p. ej. el slider gemelo), el texto se
+ * resincroniza.
+ */
+@Composable
+fun NumberField(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValue: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    decimals: Int = 0,
+) {
+    val colors = Theme.colors
+    var text by remember { mutableStateOf(formatNumber(value, decimals)) }
+    // Texto y valor divergen solo cuando el cambio vino de fuera: se resincroniza
+    // sin resetear mientras el usuario teclea (su texto ya proyecta este valor).
+    if (coerceToRange(text, value, range) != value) text = formatNumber(value, decimals)
+    BasicTextField(
+        value = text,
+        onValueChange = {
+            text = it
+            onValue(coerceToRange(it, value, range))
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        textStyle = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
+        modifier = modifier
+            .border(1.dp, colors.outline, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     )
 }
 

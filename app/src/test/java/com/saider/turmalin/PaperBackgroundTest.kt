@@ -105,4 +105,12 @@ class PaperBackgroundTest {
         assertEquals(216f, coercePageMm("abc", 216f), eps) // no parseable ⇒ fallback
         assertEquals(210f, coercePageMm(" 210 ", 216f), eps)
     }
+
+    @Test
+    fun `coerceToRange acepta coma decimal y acota al rango dado`() {
+        assertEquals(4.5f, coerceToRange("4,5", 1f, PEN_SIZE_RANGE), eps)
+        assertEquals(4.5f, coerceToRange("4.5", 1f, PEN_SIZE_RANGE), eps)
+        assertEquals(PEN_SIZE_RANGE.endInclusive, coerceToRange("99", 1f, PEN_SIZE_RANGE), eps)
+        assertEquals(3f, coerceToRange("", 3f, PEN_SIZE_RANGE), eps) // vacío ⇒ fallback
+    }
 }

@@ -922,18 +922,22 @@ private fun NoteSettingsDialog(
             if (custom) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MmField(
+                    NumberField(
                         value = pageSize.widthMm,
+                        range = PAGE_MM_RANGE,
                         onValue = { onPageSizeChange(pageSize.copy(widthMm = it)) },
+                        modifier = Modifier.width(72.dp),
                     )
                     BasicText(
                         text = "×",
                         style = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
-                    MmField(
+                    NumberField(
                         value = pageSize.heightMm,
+                        range = PAGE_MM_RANGE,
                         onValue = { onPageSizeChange(pageSize.copy(heightMm = it)) },
+                        modifier = Modifier.width(72.dp),
                     )
                     BasicText(
                         text = "mm",
@@ -960,31 +964,6 @@ private fun SettingsHeading(text: String) {
             fontSize = AppType.label,
             fontWeight = FontWeight.Bold,
         ),
-    )
-}
-
-/** Campo numérico de una dimensión de página en mm (RF-06a). El valor se acota
- *  al rango sano ([coercePageMm]) al proyectarse al tamaño; el texto tecleado se
- *  conserva libre para no pelear con el usuario mientras escribe. */
-@Composable
-private fun MmField(value: Float, onValue: (Float) -> Unit) {
-    val colors = Theme.colors
-    // Texto local para no forzar el redondeo mientras el usuario teclea; solo se
-    // proyecta al tamaño (coercido) al cambiar.
-    var text by remember { mutableStateOf(value.toInt().toString()) }
-    BasicTextField(
-        value = text,
-        onValueChange = {
-            text = it
-            onValue(coercePageMm(it, value))
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        textStyle = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
-        modifier = Modifier
-            .width(72.dp)
-            .border(1.dp, colors.outline, RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
     )
 }
 
