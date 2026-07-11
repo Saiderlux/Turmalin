@@ -164,6 +164,8 @@ fun NoteScreen(
         }
     }
     var showSettings by remember { mutableStateOf(false) }
+    // Diálogo de nombre al guardar la plantilla (v2 2.3).
+    var showSaveTemplate by remember { mutableStateOf(false) }
     // Aviso informativo no bloqueante (RF-34): p. ej. selección ya linkeada.
     var infoNotice by remember { mutableStateOf<String?>(null) }
     // Progreso de exportación visible (heurística 1): "Generando PDF…",
@@ -586,10 +588,29 @@ fun NoteScreen(
             pageSize = pageSizes.getOrElse(currentPage) { DEFAULT_PAGE_SIZE },
             onPageSizeChange = { pageSizes[currentPage] = it },
             pageLabel = "página ${currentPage + 1}/$pageCount",
+            onSaveTemplate = { showSaveTemplate = true },
             onDismiss = {
                 repo.saveMeta(snapshotMeta())
                 showSettings = false
             },
+        )
+      }
+
+      // v2 2.3: guarda la combinación vigente (fondo + tamaño de la página
+      // actual) como plantilla con nombre, reutilizable desde el FAB.
+      if (showSaveTemplate) {
+        TextInputDialog(
+            title = "Guardar plantilla",
+            confirmLabel = "Guardar",
+            onConfirm = { name ->
+                repo.createTemplate(
+                    name = name,
+                    paper = paper,
+                    pageSize = pageSizes.getOrElse(currentPage) { DEFAULT_PAGE_SIZE },
+                )
+                showSaveTemplate = false
+            },
+            onDismiss = { showSaveTemplate = false },
         )
       }
 
@@ -851,6 +872,8 @@ private fun NoteSettingsDialog(
     pageSize: PageSize,
     onPageSizeChange: (PageSize) -> Unit,
     pageLabel: String,
+    // v2 2.3: guarda fondo + tamaño actual como plantilla con nombre.
+    onSaveTemplate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = Theme.colors
@@ -949,6 +972,11 @@ private fun NoteSettingsDialog(
 
             Spacer(modifier = Modifier.height(20.dp))
             Row(modifier = Modifier.align(Alignment.End)) {
+                AppButton(
+                    label = "Guardar plantilla",
+                    onClick = onSaveTemplate,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
                 AppButton(label = "Cerrar", onClick = onDismiss, style = ButtonStyle.TEXT)
             }
         }

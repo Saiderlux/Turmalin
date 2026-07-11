@@ -164,6 +164,56 @@ data class Notebook(
 )
 
 /**
+ * Plantilla de papel guardable (v2 2.3): combinación con nombre de fondo
+ * (estilo + espaciado) y tamaño de página, reutilizable al crear notas nuevas.
+ * Es un atajo, nunca un paso obligatorio (RF-07): una nota nueva sin plantilla
+ * sigue iniciando en Carta + blanco.
+ */
+data class NoteTemplate(
+    val id: String,
+    val name: String,
+    val paper: PaperBackground,
+    val pageSize: PageSize,
+)
+
+/** Parser de templates.json (v2 2.3); entrada malformada se ignora sin
+ *  descartar las válidas (RNF-07). Función pura para testear en JVM. */
+fun parseTemplates(jsonText: String): List<NoteTemplate> = runCatching {
+    val array = JSONArray(jsonText)
+    buildList {
+        for (i in 0 until array.length()) {
+            runCatching {
+                val json = array.getJSONObject(i)
+                add(
+                    NoteTemplate(
+                        id = json.getString("id"),
+                        name = json.getString("name"),
+                        paper = PaperBackground(
+                            style = runCatching {
+                                PaperStyle.valueOf(
+                                    json.optString("paperStyle", PaperStyle.BLANK.name)
+                                )
+                            }.getOrDefault(PaperStyle.BLANK),
+                            spacing = json.optDouble(
+                                "paperSpacing", DEFAULT_PAPER_SPACING.toDouble(),
+                            ).toFloat(),
+                        ),
+                        pageSize = PageSize(
+                            widthMm = json.optDouble(
+                                "pageWidthMm", DEFAULT_PAGE_SIZE.widthMm.toDouble(),
+                            ).toFloat(),
+                            heightMm = json.optDouble(
+                                "pageHeightMm", DEFAULT_PAGE_SIZE.heightMm.toDouble(),
+                            ).toFloat(),
+                        ),
+                    )
+                )
+            }
+        }
+    }
+}.getOrElse { emptyList() }
+
+/**
  * Ajustes del grafo (estilo Obsidian): perillas de la simulación de fuerzas y del
  * render, persistidas bajo la clave `graph` de settings.json. Los defaults igualan
  * las constantes históricas de [GraphSimulation] y [GraphScreen].
@@ -216,6 +266,7 @@ class NoteRepository(context: Context) {
     private val notesDir = File(context.getExternalFilesDir(null), "vault/notes")
     private val trashDir = File(context.getExternalFilesDir(null), "vault/trash")
     private val notebooksFile = File(context.getExternalFilesDir(null), "vault/notebooks.json")
+    private val templatesFile = File(context.getExternalFilesDir(null), "vault/templates.json")
     private val graphFile = File(context.getExternalFilesDir(null), "vault/graph.json")
     private val settingsFile = File(context.getExternalFilesDir(null), "vault/settings.json")
 
@@ -225,7 +276,13 @@ class NoteRepository(context: Context) {
             .mapNotNull { readMeta(it) }
             .sortedByDescending { it.modifiedAtMillis }
 
-    fun createNote(notebookIds: List<String> = emptyList()): NoteMeta {
+    /** UC-01, v2 2.3: [paper] y [pageSize] permiten crear desde una plantilla;
+     *  sin plantilla, los defaults son los de siempre (Carta + blanco, RF-07). */
+    fun createNote(
+        notebookIds: List<String> = emptyList(),
+        paper: PaperBackground = PaperBackground(),
+        pageSize: PageSize = DEFAULT_PAGE_SIZE,
+    ): NoteMeta {
         val now = System.currentTimeMillis()
         val meta = NoteMeta(
             uuid = UUID.randomUUID().toString(),
@@ -234,6 +291,8 @@ class NoteRepository(context: Context) {
             modifiedAtMillis = now,
             titleNudgeCount = 0,
             notebookIds = notebookIds,
+            paper = paper,
+            pageSizes = listOf(pageSize),
         )
         saveMeta(meta)
         return meta
@@ -330,6 +389,44 @@ class NoteRepository(context: Context) {
             array.put(JSONObject().put("id", notebook.id).put("name", notebook.name))
         }
         notebooksFile.writeText(array.toString())
+    }
+
+    // --- Plantillas de papel (v2 2.3): registro único en vault/templates.json,
+    // mismo patrón que los cuadernos ---
+
+    fun listTemplates(): List<NoteTemplate> =
+        if (!templatesFile.exists()) emptyList() else parseTemplates(templatesFile.readText())
+
+    fun createTemplate(name: String, paper: PaperBackground, pageSize: PageSize): NoteTemplate {
+        val template = NoteTemplate(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            paper = paper,
+            pageSize = pageSize,
+        )
+        saveTemplates(listTemplates() + template)
+        return template
+    }
+
+    fun deleteTemplate(id: String) {
+        saveTemplates(listTemplates().filterNot { it.id == id })
+    }
+
+    private fun saveTemplates(templates: List<NoteTemplate>) {
+        templatesFile.parentFile?.mkdirs()
+        val array = JSONArray()
+        for (t in templates) {
+            array.put(
+                JSONObject()
+                    .put("id", t.id)
+                    .put("name", t.name)
+                    .put("paperStyle", t.paper.style.name)
+                    .put("paperSpacing", t.paper.spacing.toDouble())
+                    .put("pageWidthMm", t.pageSize.widthMm.toDouble())
+                    .put("pageHeightMm", t.pageSize.heightMm.toDouble()),
+            )
+        }
+        templatesFile.writeText(array.toString())
     }
 
     // --- Links (RF-17/18/33): índice global en vault/graph.json + regiones

@@ -55,6 +55,7 @@ private sealed interface GalleryDialog {
     data class RenameNotebook(val notebook: Notebook) : GalleryDialog
     data class NoteActions(val note: NoteMeta) : GalleryDialog
     data class NoteNotebooks(val note: NoteMeta) : GalleryDialog
+    data object NewNoteFromTemplate : GalleryDialog
 }
 
 /**
@@ -70,6 +71,8 @@ fun GalleryScreen(
     onNudgeDismiss: () -> Unit,
     onSetQuery: (String) -> Unit,
     onNewNote: () -> Unit,
+    onNewNoteFromTemplate: (NoteTemplate) -> Unit,
+    onDeleteTemplate: (NoteTemplate) -> Unit,
     onOpenNote: (NoteMeta) -> Unit,
     onOpenNotebook: (String?) -> Unit,
     onSetSortOrder: (SortOrder) -> Unit,
@@ -155,6 +158,7 @@ fun GalleryScreen(
 
         NewNoteFab(
             onClick = onNewNote,
+            onLongPress = { dialog = GalleryDialog.NewNoteFromTemplate },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(24.dp),
@@ -246,6 +250,15 @@ fun GalleryScreen(
             note = current.note,
             notebooks = state.notebooks,
             onSetNotebooks = { ids -> onSetNotebooks(current.note, ids) },
+            onDismiss = { dialog = null },
+        )
+        is GalleryDialog.NewNoteFromTemplate -> NewNoteFromTemplateDialog(
+            templates = state.templates,
+            onCreate = { template ->
+                onNewNoteFromTemplate(template)
+                dialog = null
+            },
+            onDelete = onDeleteTemplate,
             onDismiss = { dialog = null },
         )
     }
@@ -506,21 +519,68 @@ private fun NoteCard(
     }
 }
 
-/** Botón flotante de nueva nota (UC-01). */
+/** Botón flotante de nueva nota (UC-01). Tap = nota inmediata (RF-07, jamás
+ *  bloquea con un selector); long-press = elegir plantilla guardada (v2 2.3). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NewNoteFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun NewNoteFab(
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = Theme.colors
     Box(
         modifier = modifier
             .size(60.dp)
             .background(colors.accent, CircleShape)
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             text = "+",
             style = TextStyle(color = colors.onAccent, fontSize = AppType.display),
         )
+    }
+}
+
+/**
+ * Nueva nota desde plantilla (v2 2.3): lista de presets guardados; el ✕ borra
+ * el preset (recrearlo cuesta un toque desde los ajustes de una nota, no
+ * amerita confirmación). Vacío ⇒ pista de cómo guardar la primera.
+ */
+@Composable
+private fun NewNoteFromTemplateDialog(
+    templates: List<NoteTemplate>,
+    onCreate: (NoteTemplate) -> Unit,
+    onDelete: (NoteTemplate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = Theme.colors
+    Dialog(onDismissRequest = onDismiss) {
+        DialogSurface {
+            DialogTitle("Nueva nota desde plantilla")
+            if (templates.isEmpty()) {
+                BasicText(
+                    text = "No hay plantillas todavía — guarda una desde los " +
+                        "ajustes de página de cualquier nota",
+                    style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
+                )
+            }
+            templates.forEach { template ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        DialogOption(label = template.name, onClick = { onCreate(template) })
+                    }
+                    BasicText(
+                        text = "✕",
+                        style = TextStyle(color = colors.textHint, fontSize = AppType.label),
+                        modifier = Modifier
+                            .clickable { onDelete(template) }
+                            .padding(12.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -578,9 +638,10 @@ fun DialogOption(label: String, onClick: () -> Unit, danger: Boolean = false) {
     )
 }
 
-/** Diálogo genérico de un campo de texto (crear/renombrar cuaderno, RF-13). */
+/** Diálogo genérico de un campo de texto (crear/renombrar cuaderno RF-13,
+ *  nombrar plantilla v2 2.3). */
 @Composable
-private fun TextInputDialog(
+fun TextInputDialog(
     title: String,
     confirmLabel: String,
     onConfirm: (String) -> Unit,

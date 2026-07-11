@@ -92,6 +92,13 @@ class MainActivity : ComponentActivity() {
                         focusTitleOnOpen = false
                         openNote = viewModel.createNote()
                     },
+                    // v2 2.3: misma apertura inmediata, con el preset aplicado.
+                    onNewNoteFromTemplate = { template ->
+                        viewModel.dismissTitleNudge()
+                        focusTitleOnOpen = false
+                        openNote = viewModel.createNoteFromTemplate(template)
+                    },
+                    onDeleteTemplate = viewModel::deleteTemplate,
                     onOpenNote = { note ->
                         viewModel.dismissTitleNudge()
                         focusTitleOnOpen = false

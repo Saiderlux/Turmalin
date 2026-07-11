@@ -18,6 +18,8 @@ enum class SortOrder { MODIFIED, TITLE, NOTEBOOK, TAGS }
 data class GalleryUiState(
     val notes: List<NoteMeta> = emptyList(),
     val notebooks: List<Notebook> = emptyList(),
+    // Plantillas de papel guardadas (v2 2.3), para "nueva nota desde plantilla".
+    val templates: List<NoteTemplate> = emptyList(),
     // Cuaderno abierto en la galería; null = raíz (cuadernos + notas sueltas).
     val openNotebookId: String? = null,
     val sortOrder: SortOrder = SortOrder.MODIFIED,
@@ -155,6 +157,7 @@ class GalleryViewModel(
             it.copy(
                 notes = notes,
                 notebooks = repo.listNotebooks(),
+                templates = repo.listTemplates(),
                 // ponytail: releer todos los annotations.json en cada refresh;
                 // cachear por mtime si el vault crece a cientos de notas.
                 ocrTexts = notes.associate { note -> note.uuid to repo.loadOcrText(note.uuid) },
@@ -257,6 +260,22 @@ class GalleryViewModel(
         val meta = repo.createNote(notebookIds = listOfNotNull(_state.value.openNotebookId))
         refresh()
         return meta
+    }
+
+    /** v2 2.3: crea la nota con el fondo y tamaño del preset elegido. */
+    fun createNoteFromTemplate(template: NoteTemplate): NoteMeta {
+        val meta = repo.createNote(
+            notebookIds = listOfNotNull(_state.value.openNotebookId),
+            paper = template.paper,
+            pageSize = template.pageSize,
+        )
+        refresh()
+        return meta
+    }
+
+    fun deleteTemplate(template: NoteTemplate) {
+        repo.deleteTemplate(template.id)
+        refresh()
     }
 
     fun createNotebook(name: String) {
