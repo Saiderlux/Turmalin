@@ -140,7 +140,18 @@ class PdfExporter(private val context: Context) {
             strokeWidth = PDF_LINE_WIDTH_DOC
             isAntiAlias = true
         }
-        for (y in paperLinePositions(0f, 1f, paper.spacing, hDoc)) {
+        val ys = paperLinePositions(0f, 1f, paper.spacing, hDoc)
+        if (paper.style == PaperStyle.DOTS) {
+            // Puntos (v2 2.1): intersecciones de la retícula, mismo radio que
+            // en pantalla (coincide a zoom 1x, RF-28).
+            for (y in ys) {
+                for (x in paperLinePositions(0f, 1f, paper.spacing, wDoc)) {
+                    canvas.drawCircle(x, y, PAPER_DOT_RADIUS, paint)
+                }
+            }
+            return
+        }
+        for (y in ys) {
             canvas.drawLine(0f, y, wDoc, y, paint)
         }
         if (paper.style == PaperStyle.GRID) {

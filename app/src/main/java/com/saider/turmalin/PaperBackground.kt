@@ -12,8 +12,10 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-// Estilos de fondo de página (RF-06): blanco, con líneas o con cuadrícula.
-enum class PaperStyle { BLANK, LINES, GRID }
+// Estilos de fondo de página (RF-06, v2 2.1): blanco, líneas, cuadrícula o
+// puntos. Un build viejo que lea DOTS cae a BLANK sin romper (el valueOf de
+// lectura tiene fallback), así que no hay migración.
+enum class PaperStyle { BLANK, LINES, GRID, DOTS }
 
 // Espaciado por defecto de líneas/cuadrícula en unidades de DOCUMENTO (≈ px a
 // zoom 1x). Ajustable por el usuario con slider (RF-06) dentro de este rango.
@@ -115,6 +117,11 @@ private val PAPER_LINE_COLOR = Color(PAPER_LINE_ARGB)
 // distinguirse (zoom muy bajo): no se dibujan.
 private const val MIN_LINE_SPACING_PX = 6f
 
+// Radio del punto del dot grid (v2 2.1). Mismo valor en px de pantalla y en
+// unidades de documento del PDF: coincide a zoom 1x y, como el grosor de las
+// guías, no crece con el zoom (es guía visual, no tinta).
+const val PAPER_DOT_RADIUS = 2.5f
+
 /**
  * Posiciones de pantalla de las guías a lo largo de un eje: líneas en documento
  * en k·spacing (k entero) proyectadas con `pantalla = doc·scale + offset` — la
@@ -168,17 +175,27 @@ fun PageBackgroundLayer(
         drawRect(Color.White, topLeft = Offset(left, top), size = Size(pageW, pageH))
 
         // Guías recortadas a la hoja: se generan sobre todo el lienzo y el clip
-        // deja solo las que caen dentro de la página (RF-06).
+        // deja solo las que caen dentro de la página (RF-06). Puntos (v2 2.1) =
+        // círculos en las intersecciones de la misma retícula de la cuadrícula.
         if (background.style != PaperStyle.BLANK) {
             clipRect(left = left, top = top, right = right, bottom = bottom) {
                 val w = size.width
                 val h = size.height
-                for (y in paperLinePositions(top, scale, background.spacing, bottom)) {
-                    drawLine(PAPER_LINE_COLOR, Offset(0f, y), Offset(w, y), 1.5f)
-                }
-                if (background.style == PaperStyle.GRID) {
-                    for (x in paperLinePositions(left, scale, background.spacing, right)) {
-                        drawLine(PAPER_LINE_COLOR, Offset(x, 0f), Offset(x, h), 1.5f)
+                val ys = paperLinePositions(top, scale, background.spacing, bottom)
+                if (background.style == PaperStyle.DOTS) {
+                    for (y in ys) {
+                        for (x in paperLinePositions(left, scale, background.spacing, right)) {
+                            drawCircle(PAPER_LINE_COLOR, PAPER_DOT_RADIUS, Offset(x, y))
+                        }
+                    }
+                } else {
+                    for (y in ys) {
+                        drawLine(PAPER_LINE_COLOR, Offset(0f, y), Offset(w, y), 1.5f)
+                    }
+                    if (background.style == PaperStyle.GRID) {
+                        for (x in paperLinePositions(left, scale, background.spacing, right)) {
+                            drawLine(PAPER_LINE_COLOR, Offset(x, 0f), Offset(x, h), 1.5f)
+                        }
                     }
                 }
             }

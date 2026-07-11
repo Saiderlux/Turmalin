@@ -867,6 +867,9 @@ private fun NoteSettingsDialog(
                 }, modifier = Modifier.padding(end = 8.dp))
                 AppChip("Cuadrícula", paper.style == PaperStyle.GRID, {
                     onPaperChange(paper.copy(style = PaperStyle.GRID))
+                }, modifier = Modifier.padding(end = 8.dp))
+                AppChip("Puntos", paper.style == PaperStyle.DOTS, {
+                    onPaperChange(paper.copy(style = PaperStyle.DOTS))
                 })
             }
             // Espaciado (RF-06): solo relevante para líneas/cuadrícula.
