@@ -1,20 +1,26 @@
 package com.saider.turmalin
 
 import android.content.Context
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,10 +28,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
 import kotlin.math.roundToInt
 
 /**
@@ -132,6 +144,77 @@ fun AppChip(
             )
             .padding(horizontal = 14.dp, vertical = 8.dp),
     )
+}
+
+/**
+ * Botón de icono de la barra de herramientas (v2 3.1): mismo lenguaje visual
+ * que [AppChip] (fondo accent al seleccionar, estado pressed) pero cuadrado y
+ * con un [ImageVector] en vez de texto. Mantener presionado muestra el label
+ * en un popup breve — el nombre de la herramienta sigue siendo descubrible.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AppIconButton(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val colors = Theme.colors
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    var showLabel by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(8.dp)
+    val background = (if (selected) colors.accent else colors.surface)
+        .let { if (isPressed && enabled) it.pressed(colors.isDark) else it }
+    val tint = when {
+        !enabled -> colors.disabled
+        selected -> colors.onAccent
+        else -> colors.textPrimary
+    }
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .background(background, shape)
+            .border(1.dp, if (selected) colors.accent else colors.outline, shape)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = { showLabel = true },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = rememberVectorPainter(icon),
+            contentDescription = label,
+            colorFilter = ColorFilter.tint(tint),
+            modifier = Modifier.size(22.dp),
+        )
+        if (showLabel) {
+            Popup(
+                alignment = Alignment.TopCenter,
+                offset = IntOffset(0, with(LocalDensity.current) { -44.dp.roundToPx() }),
+                onDismissRequest = { showLabel = false },
+            ) {
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(1500)
+                    showLabel = false
+                }
+                BasicText(
+                    text = label,
+                    style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
+                    modifier = Modifier
+                        .background(colors.surfaceVariant, RoundedCornerShape(16.dp))
+                        .border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
 }
 
 /** Flecha de volver, idéntica en todas las barras superiores. */

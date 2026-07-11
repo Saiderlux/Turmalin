@@ -103,30 +103,48 @@ fun InkToolbar(
     val colors = Theme.colors
     val highlightedTool = temporaryEraserTool ?: selectedTool
 
+    // Iconos en vez de texto (v2 3.1): menos ancho ocupado en la Tab S6 Lite;
+    // el label sigue disponible con long-press (ver [AppIconButton]).
     val tools: @Composable () -> Unit = {
         DragHandle(onDrag = onDrag, onDragEnd = onDragEnd)
-        AppChip(
+        AppIconButton(
+            icon = AppIcons.Pen,
             label = "Pluma",
             selected = highlightedTool == Tool.PEN,
             onClick = { onToolSelect(Tool.PEN) },
         )
-        AppChip(
+        AppIconButton(
+            icon = AppIcons.EraserStroke,
             label = "Goma trazo",
             selected = highlightedTool == Tool.ERASER_STROKE,
             onClick = { onToolSelect(Tool.ERASER_STROKE) },
         )
-        AppChip(
+        AppIconButton(
+            icon = AppIcons.EraserPartial,
             label = "Goma parcial",
             selected = highlightedTool == Tool.ERASER_PARTIAL,
             onClick = { onToolSelect(Tool.ERASER_PARTIAL) },
         )
-        AppChip(
+        AppIconButton(
+            icon = AppIcons.Link,
             label = "Lazo de vínculo",
             selected = highlightedTool == Tool.LASSO,
             onClick = { onToolSelect(Tool.LASSO) },
         )
-        HistoryButton(label = "↶", enabled = canUndo, onClick = onUndo)
-        HistoryButton(label = "↷", enabled = canRedo, onClick = onRedo)
+        AppIconButton(
+            icon = AppIcons.Undo,
+            label = "Deshacer",
+            selected = false,
+            enabled = canUndo,
+            onClick = onUndo,
+        )
+        AppIconButton(
+            icon = AppIcons.Redo,
+            label = "Rehacer",
+            selected = false,
+            enabled = canRedo,
+            onClick = onRedo,
+        )
     }
 
     // Paleta de color y grosor: solo relevante mientras se escribe. Los
@@ -208,29 +226,6 @@ fun InkToolbar(
                 }
             }
         }
-    }
-}
-
-/** Botón de deshacer/rehacer (RF-37): atenuado cuando no hay pasos que aplicar. */
-@Composable
-private fun HistoryButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    val colors = Theme.colors
-    Box(
-        modifier = Modifier
-            .padding(3.dp)
-            .size(30.dp)
-            .clip(CircleShape)
-            .border(1.dp, colors.outlineVariant, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        BasicText(
-            text = label,
-            style = TextStyle(
-                color = if (enabled) colors.textPrimary else colors.disabled,
-                fontSize = AppType.title,
-            ),
-        )
     }
 }
 
