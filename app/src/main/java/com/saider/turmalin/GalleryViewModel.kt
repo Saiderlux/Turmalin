@@ -203,8 +203,15 @@ class GalleryViewModel(
             }
             val brush = defaultBlackPen()
             val pages = (0 until meta.pageCount).map { page ->
+                // Los trazos del marcatextos (v2 1.2) no son escritura: se
+                // excluyen del OCR para no ensuciar el reconocimiento del
+                // texto que subrayan.
                 ocrIndexer.recognizePage(
-                    repo.loadStrokes(meta.uuid, page, brush).map { it.stroke }
+                    repo.loadStrokes(meta.uuid, page, brush)
+                        .map { it.stroke }
+                        .filter {
+                            brushFamilyOrdinal(it.brush.family) != FAMILY_HIGHLIGHTER
+                        }
                 )
             }
             repo.saveOcrText(meta.uuid, pages)

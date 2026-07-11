@@ -45,6 +45,18 @@ val PEN_COLORS = listOf(
 val PEN_SIZE_RANGE = 1f..16f
 const val DEFAULT_PEN_SIZE = 4f
 
+// Marcatextos (v2 1.2): más grueso que la pluma (cubre renglones enteros) y
+// con su propio default amarillo — el color de subrayado por antonomasia.
+val HIGHLIGHTER_SIZE_RANGE = 6f..48f
+const val DEFAULT_HIGHLIGHTER_SIZE = 20f
+const val DEFAULT_HIGHLIGHTER_COLOR = 0xFFFDD835.toInt()
+
+// Familias de la pluma (v2 1.1) en la paleta: etiqueta → ordinal serializable.
+val PEN_FAMILY_OPTIONS = listOf(
+    "Lápiz" to FAMILY_PEN,
+    "Pluma" to FAMILY_MARKER,
+)
+
 /** Borde de pantalla al que está acoplada la barra de herramientas. */
 enum class DockEdge { TOP, BOTTOM, LEFT, RIGHT }
 
@@ -81,8 +93,14 @@ fun nearestDockEdge(center: Offset, canvas: IntSize): DockEdge {
 fun InkToolbar(
     selectedTool: Tool,
     temporaryEraserTool: Tool?,
+    // Color, grosor y rango de la herramienta que tinta ACTIVA (pluma o
+    // marcatextos, v2 1.2): el llamador enruta al estado correcto.
     penColorArgb: Int,
     penSize: Float,
+    sizeRange: ClosedFloatingPointRange<Float>,
+    // Familia de la pluma (v2 1.1); solo visible con la pluma seleccionada.
+    penFamilyOrdinal: Int,
+    onFamilySelect: (Int) -> Unit,
     // RF-37: deshacer/rehacer de ink desde la barra (sin gestos táctiles, que
     // chocarían con el pan/zoom de RF-09a/09b). Atenuados sin pasos disponibles.
     canUndo: Boolean,
@@ -112,6 +130,12 @@ fun InkToolbar(
             label = "Pluma",
             selected = highlightedTool == Tool.PEN,
             onClick = { onToolSelect(Tool.PEN) },
+        )
+        AppIconButton(
+            icon = AppIcons.Highlighter,
+            label = "Marcatextos",
+            selected = highlightedTool == Tool.HIGHLIGHTER,
+            onClick = { onToolSelect(Tool.HIGHLIGHTER) },
         )
         AppIconButton(
             icon = AppIcons.EraserStroke,
@@ -147,6 +171,19 @@ fun InkToolbar(
         )
     }
 
+    // Familia de la pluma (v2 1.1): chips Lápiz/Pluma, solo con la pluma activa
+    // (el marcatextos es herramienta aparte, no una familia de la pluma).
+    val familyChips: @Composable () -> Unit = {
+        for ((label, ordinal) in PEN_FAMILY_OPTIONS) {
+            AppChip(
+                label = label,
+                selected = ordinal == penFamilyOrdinal,
+                onClick = { onFamilySelect(ordinal) },
+                modifier = Modifier.padding(2.dp),
+            )
+        }
+    }
+
     // Paleta de color y grosor: solo relevante mientras se escribe. Los
     // preestablecidos son accesos rápidos (RF-04); la rueda abre el selector
     // personalizado y muestra el color activo cuando no es un preset.
@@ -174,14 +211,14 @@ fun InkToolbar(
                 GraphSlider(
                     label = "Grosor",
                     value = penSize,
-                    range = PEN_SIZE_RANGE,
+                    range = sizeRange,
                     onChange = onSizeSelect,
                     onCommit = {},
                 )
             }
             NumberField(
                 value = penSize,
-                range = PEN_SIZE_RANGE,
+                range = sizeRange,
                 onValue = onSizeSelect,
                 decimals = 1,
                 modifier = Modifier.width(56.dp).padding(start = 6.dp),
@@ -197,12 +234,13 @@ fun InkToolbar(
     if (vertical) {
         Row(modifier = modifier.then(container)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { tools() }
-            if (selectedTool == Tool.PEN) {
+            if (selectedTool.drawsInk) {
                 Column(
                     modifier = Modifier.padding(start = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (selectedTool == Tool.PEN) familyChips()
                     palette()
                     sizeSlider()
                 }
@@ -214,12 +252,13 @@ fun InkToolbar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) { tools() }
-            if (selectedTool == Tool.PEN) {
+            if (selectedTool.drawsInk) {
                 Row(
                     modifier = Modifier.padding(top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (selectedTool == Tool.PEN) familyChips()
                     palette()
                     Box(modifier = Modifier.width(10.dp))
                     sizeSlider()

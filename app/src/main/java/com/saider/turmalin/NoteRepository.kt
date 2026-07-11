@@ -21,10 +21,37 @@ import java.util.UUID
 const val DEFAULT_NOTE_TITLE = "Sin título"
 
 // Versión del formato de ink.bin. v2 (Fase 6) añade color y grosor por trazo,
-// antes de la geometría nativa; un archivo v1 (que empezaba con el conteo de
-// trazos) no coincide y se lee como página en blanco (retrocompat rota a
-// propósito, ver [NoteRepository.loadStrokes]).
-private const val INK_FORMAT_VERSION = 2
+// antes de la geometría nativa; v3 (v2 1.1/1.2) antepone además la familia de
+// pincel por trazo. Un v2 se sigue leyendo (el vault ya tiene notas reales:
+// la retrocompat NO se rompe esta vez) asumiendo familia lápiz; un v1 se lee
+// como página en blanco (roto a propósito en Fase 6).
+private const val INK_FORMAT_VERSION = 3
+private const val INK_FORMAT_V2 = 2
+
+// Familias de pincel serializables (v2 1.1/1.2). El índice en esta lista es la
+// clave estable escrita en ink.bin v3 — NUNCA reordenar ni eliminar entradas.
+// Instancias únicas: los pinceles nuevos se construyen desde aquí ([penBrush]),
+// así [brushFamilyOrdinal] resuelve por identidad sin depender de equals.
+// `lazy` obligatorio: StockBrushes carga la librería nativa de ink, que no
+// existe en los tests JVM — un val directo tumbaría el class-init del archivo.
+val BRUSH_FAMILIES: List<androidx.ink.brush.BrushFamily> by lazy {
+    listOf(
+        androidx.ink.brush.StockBrushes.pressurePen(), // 0 — Lápiz (presión variable)
+        androidx.ink.brush.StockBrushes.marker(),      // 1 — Pluma (línea uniforme)
+        androidx.ink.brush.StockBrushes.highlighter(), // 2 — Marcatextos (translúcido)
+    )
+}
+const val FAMILY_PEN = 0
+const val FAMILY_MARKER = 1
+const val FAMILY_HIGHLIGHTER = 2
+
+/** Ordinal serializable de la familia; desconocida ⇒ lápiz (0). */
+fun brushFamilyOrdinal(family: androidx.ink.brush.BrushFamily): Int =
+    BRUSH_FAMILIES.indexOf(family).coerceAtLeast(0)
+
+/** Familia desde su ordinal de ink.bin; fuera de rango ⇒ lápiz (RNF-07). */
+fun brushFamilyFor(ordinal: Int): androidx.ink.brush.BrushFamily =
+    BRUSH_FAMILIES.getOrElse(ordinal) { BRUSH_FAMILIES[FAMILY_PEN] }
 
 /**
  * Metadata de una nota. El [uuid] es el identificador permanente (RF-31): se
@@ -605,9 +632,10 @@ class NoteRepository(context: Context) {
     /**
      * Guarda los trazos de una página en ink.bin. Escritura atómica (archivo
      * temporal + rename) para que un cierre abrupto no corrompa el ink existente.
-     * Formato v2 (RF-03/04): un encabezado de versión, y por trazo su color
-     * (ARGB) y grosor —el pincel es intrínseco a la tinta, no metadata— seguidos
-     * de la codificación nativa de androidx.ink del batch de entradas. Los IDs
+     * Formato v3 (RF-03/04, v2 1.1/1.2): un encabezado de versión, y por trazo su
+     * familia de pincel (ordinal de [BRUSH_FAMILIES]), color (ARGB) y grosor
+     * —el pincel es intrínseco a la tinta, no metadata— seguidos de la
+     * codificación nativa de androidx.ink del batch de entradas. Los IDs
      * estables (puente ink↔link) se escriben aparte en annotations.json (ver
      * [saveStrokeIds]).
      */
@@ -619,9 +647,9 @@ class NoteRepository(context: Context) {
             out.writeInt(INK_FORMAT_VERSION)
             out.writeInt(strokes.size)
             for (item in strokes) {
-                // Familia (pressurePen) y epsilon son constantes del MVP: no se
-                // serializan, se reponen al leer. Basta color+grosor para
-                // reconstruir el Brush completo.
+                // Epsilon es constante del MVP: no se serializa, se repone al
+                // leer. Familia+color+grosor reconstruyen el Brush completo.
+                out.writeInt(brushFamilyOrdinal(item.stroke.brush.family))
                 out.writeInt(item.stroke.brush.colorIntArgb)
                 out.writeFloat(item.stroke.brush.size)
                 val bytes = ByteArrayOutputStream()
@@ -662,15 +690,15 @@ class NoteRepository(context: Context) {
     }
 
     /**
-     * Carga los trazos de una página como [IdStroke]. El color y grosor de cada
-     * trazo se leen de ink.bin (formato v2) y reconstruyen su pincel; [brush]
-     * solo aporta las partes constantes del MVP (familia pressurePen y epsilon).
+     * Carga los trazos de una página como [IdStroke]. Familia (v3), color y
+     * grosor de cada trazo se leen de ink.bin y reconstruyen su pincel; [brush]
+     * solo aporta el epsilon constante del MVP. Un v2 (sin familia por trazo) se
+     * lee asumiendo lápiz para todos — las notas reales del vault no se rompen.
      * Los IDs se adjuntan del registro alineado por posición; si falta o está
-     * desalineado, se asignan IDs nuevos estables. Un ink.bin de formato anterior
-     * (sin color/grosor) se descarta como página en blanco —la retrocompat se
-     * rompió a propósito con la paleta (Fase 6)—; esto además evita interpretar
-     * bytes viejos como longitudes enormes. Archivo inexistente o ilegible ⇒
-     * lista vacía en vez de tumbar la app.
+     * desalineado, se asignan IDs nuevos estables. Un ink.bin v1 se descarta
+     * como página en blanco (retrocompat rota a propósito en Fase 6); esto
+     * además evita interpretar bytes viejos como longitudes enormes. Archivo
+     * inexistente o ilegible ⇒ lista vacía en vez de tumbar la app.
      */
     fun loadStrokes(uuid: String, pageIndex: Int, brush: Brush): List<IdStroke> {
         val file = File(File(notesDir, uuid), "pages/$pageIndex.ink")
@@ -678,10 +706,15 @@ class NoteRepository(context: Context) {
         val ids = loadStrokeIds(uuid, pageIndex)
         return runCatching {
             DataInputStream(file.inputStream().buffered()).use { input ->
-                if (input.readInt() != INK_FORMAT_VERSION) return@use emptyList<IdStroke>()
+                val version = input.readInt()
+                if (version != INK_FORMAT_VERSION && version != INK_FORMAT_V2) {
+                    return@use emptyList<IdStroke>()
+                }
                 val count = input.readInt()
                 buildList {
                     repeat(count) { index ->
+                        val familyOrdinal =
+                            if (version >= INK_FORMAT_VERSION) input.readInt() else FAMILY_PEN
                         val colorIntArgb = input.readInt()
                         val size = input.readFloat()
                         val len = input.readInt()
@@ -689,7 +722,7 @@ class NoteRepository(context: Context) {
                         input.readFully(bytes)
                         val batch = StrokeInputBatch.decode(ByteArrayInputStream(bytes))
                         val penBrush = Brush.createWithColorIntArgb(
-                            family = brush.family,
+                            family = brushFamilyFor(familyOrdinal),
                             colorIntArgb = colorIntArgb,
                             size = size,
                             epsilon = brush.epsilon,

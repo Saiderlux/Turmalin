@@ -40,6 +40,16 @@ object AppIcons {
             "c-0.39-0.4-0.91-0.59-1.42-0.59M17 18l-2 2h7v-2",
     )
 
+    // Marcatextos (mdi "marker", v2 1.2): rotulador inclinado.
+    val Highlighter = icon(
+        "highlighter",
+        "M18.5 1.15c-0.53 0-1.04 0.19-1.43 0.58l-5.81 5.82 5.65 5.65 5.82-5.81" +
+            "c0.77-0.78 0.77-2.04 0-2.83l-2.84-2.83c-0.39-0.39-0.89-0.58-1.39-0.58" +
+            "M10.3 8.5l-5.96 5.96c-0.78 0.78-0.78 2.04 0.02 2.85-1.22 1.23-2.46 " +
+            "2.46-3.69 3.69h5.66l0.86-0.86c0.78 0.76 2.03 0.75 2.81-0.02l5.95-5.96" +
+            "-5.65-5.66z",
+    )
+
     // Lazo de vínculo (material "link"): el icono comunica el propósito (crear
     // vínculos), no el gesto — reserva espacio visual para el lasso de edición
     // de v2 (sección 5 del plan), que deberá ser inconfundible frente a este.

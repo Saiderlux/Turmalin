@@ -132,18 +132,30 @@ private fun polygonToPath(points: List<Float>): Path {
     return path
 }
 
-// Pincel de escritura (RF-03/04): tinta sensible a presión con el color y grosor
-// de la paleta. La familia (pressurePen) y epsilon son constantes del MVP; color
-// y grosor se eligen en la barra y se persisten por trazo en ink.bin.
-fun penBrush(colorIntArgb: Int, size: Float): Brush = Brush.createWithColorIntArgb(
-    family = StockBrushes.pressurePen(StockBrushes.PressurePenVersion.LATEST),
-    colorIntArgb = colorIntArgb,
-    size = size,
-    epsilon = 0.1f,
-)
+// Alpha fijo de la tinta del marcatextos (v2 1.2): translúcida para no ocultar
+// el trazo debajo, aplicada al construir el pincel y persistida con el color en
+// ink.bin — pantalla y PDF usan el mismo renderer, así el blend es idéntico.
+const val HIGHLIGHTER_ALPHA = 0x66
 
-// Pluma negra por defecto: nota nueva y reposición de las partes constantes del
-// pincel (familia y epsilon) al leer ink.bin.
+// Pincel de escritura (RF-03/04, v2 1.1/1.2): color y grosor de la paleta más
+// la familia elegida (ordinal de BRUSH_FAMILIES); epsilon es constante del MVP.
+// Todo menos epsilon se persiste por trazo en ink.bin.
+fun penBrush(colorIntArgb: Int, size: Float, familyOrdinal: Int = FAMILY_PEN): Brush {
+    val argb = if (familyOrdinal == FAMILY_HIGHLIGHTER) {
+        (colorIntArgb and 0x00FFFFFF) or (HIGHLIGHTER_ALPHA shl 24)
+    } else {
+        colorIntArgb
+    }
+    return Brush.createWithColorIntArgb(
+        family = brushFamilyFor(familyOrdinal),
+        colorIntArgb = argb,
+        size = size,
+        epsilon = 0.1f,
+    )
+}
+
+// Pluma negra por defecto: nota nueva y reposición del epsilon constante al
+// leer ink.bin (la familia real de cada trazo viene del archivo, formato v3).
 fun defaultBlackPen(): Brush = penBrush(0xFF000000.toInt(), 4f)
 
 /**
@@ -263,6 +275,21 @@ fun InkCanvasScreen(
     // listener y viajan con el Stroke terminado hasta ink.bin.
     val penColorArgb = remember { mutableStateOf(PEN_COLORS.first()) }
     val penSize = remember { mutableStateOf(DEFAULT_PEN_SIZE) }
+    // Familia de la pluma (v2 1.1): lápiz (presión variable) o pluma (línea
+    // uniforme). El marcatextos NO es una familia de la pluma: es herramienta.
+    val penFamilyOrdinal = remember { mutableStateOf(FAMILY_PEN) }
+    // Marcatextos (v2 1.2): color y grosor propios, independientes de la pluma
+    // (quien subraya en amarillo grueso no quiere perder su pluma negra fina).
+    val highlighterColorArgb = remember { mutableStateOf(DEFAULT_HIGHLIGHTER_COLOR) }
+    val highlighterSize = remember { mutableStateOf(DEFAULT_HIGHLIGHTER_SIZE) }
+    // Pincel del trazo que inicia: según la herramienta que tinta (v2 1.1/1.2).
+    val brushForTool = { tool: Tool ->
+        if (tool == Tool.HIGHLIGHTER) {
+            penBrush(highlighterColorArgb.value, highlighterSize.value, FAMILY_HIGHLIGHTER)
+        } else {
+            penBrush(penColorArgb.value, penSize.value, penFamilyOrdinal.value)
+        }
+    }
     // Selector de color personalizado (RF-04) abierto desde la rueda de la barra.
     var showColorPicker by remember { mutableStateOf(false) }
 
@@ -574,7 +601,7 @@ fun InkCanvasScreen(
                     val changed = when (tool) {
                         Tool.ERASER_STROKE -> eraseStrokeAt(x, y, halfSize)
                         Tool.ERASER_PARTIAL -> erasePartialAt(x, y, halfSize)
-                        Tool.PEN, Tool.LASSO -> false
+                        Tool.PEN, Tool.HIGHLIGHTER, Tool.LASSO -> false
                     }
                     if (changed && before != null) eraseGestureBefore = before
                 }
@@ -782,12 +809,13 @@ fun InkCanvasScreen(
                                 lastEventY = event.y
                                 lastEventTime = event.eventTime
                                 when (effectiveTool) {
-                                    Tool.PEN -> currentStrokeId = strokesView.startStroke(
-                                        event,
-                                        currentPointerId,
-                                        penBrush(penColorArgb.value, penSize.value),
-                                        motionEventToDocumentTransform(),
-                                    )
+                                    Tool.PEN, Tool.HIGHLIGHTER ->
+                                        currentStrokeId = strokesView.startStroke(
+                                            event,
+                                            currentPointerId,
+                                            brushForTool(effectiveTool),
+                                            motionEventToDocumentTransform(),
+                                        )
                                     // Lazo (RF-17): el pen no produce tinta,
                                     // solo acumula el polígono de selección.
                                     Tool.LASSO -> {
@@ -799,7 +827,7 @@ fun InkCanvasScreen(
                                 true
                             }
                             MotionEvent.ACTION_MOVE -> {
-                                if (effectiveTool == Tool.PEN) {
+                                if (effectiveTool.drawsInk) {
                                     // Goma→pluma a mitad de contacto (botón soltado):
                                     // la tinta empieza en la posición actual.
                                     val strokeId = currentStrokeId
@@ -807,7 +835,7 @@ fun InkCanvasScreen(
                                             .startStroke(
                                                 event,
                                                 currentPointerId,
-                                                penBrush(penColorArgb.value, penSize.value),
+                                                brushForTool(effectiveTool),
                                                 motionEventToDocumentTransform(),
                                             )
                                             .also { currentStrokeId = it }
@@ -980,11 +1008,21 @@ fun InkCanvasScreen(
             DockEdge.LEFT -> Alignment.CenterStart
             DockEdge.RIGHT -> Alignment.CenterEnd
         }
+        // La paleta es contextual (v2 1.2): con el marcatextos activo, color y
+        // grosor operan sobre SU estado; con la pluma, sobre el de la pluma.
+        val highlighterActive = selectedTool.value == Tool.HIGHLIGHTER
         InkToolbar(
             selectedTool = selectedTool.value,
             temporaryEraserTool = temporaryEraserTool.value,
-            penColorArgb = penColorArgb.value,
-            penSize = penSize.value,
+            penColorArgb = if (highlighterActive) {
+                highlighterColorArgb.value
+            } else {
+                penColorArgb.value
+            },
+            penSize = if (highlighterActive) highlighterSize.value else penSize.value,
+            sizeRange = if (highlighterActive) HIGHLIGHTER_SIZE_RANGE else PEN_SIZE_RANGE,
+            penFamilyOrdinal = penFamilyOrdinal.value,
+            onFamilySelect = { penFamilyOrdinal.value = it },
             canUndo = history.canUndo,
             canRedo = history.canRedo,
             // RF-37: deshacer/rehacer restauran la instantánea y encienden el
@@ -1010,8 +1048,14 @@ fun InkCanvasScreen(
                     lastEraserTool.value = tool
                 }
             },
-            onColorSelect = { penColorArgb.value = it },
-            onSizeSelect = { penSize.value = it },
+            onColorSelect = {
+                if (highlighterActive) highlighterColorArgb.value = it
+                else penColorArgb.value = it
+            },
+            onSizeSelect = {
+                if (highlighterActive) highlighterSize.value = it
+                else penSize.value = it
+            },
             onOpenColorPicker = { showColorPicker = true },
             vertical = dockEdge.isVertical,
             onDrag = { delta -> toolbarDragOffset += delta },
@@ -1040,12 +1084,17 @@ fun InkCanvasScreen(
         )
 
         // RF-04: selector personalizado; el color elegido queda activo en la
-        // pluma (los presets siguen disponibles como accesos rápidos).
+        // herramienta que tinta vigente (pluma o marcatextos).
         if (showColorPicker) {
             ColorPickerDialog(
-                initialArgb = penColorArgb.value,
+                initialArgb = if (highlighterActive) {
+                    highlighterColorArgb.value
+                } else {
+                    penColorArgb.value
+                },
                 onConfirm = { argb ->
-                    penColorArgb.value = argb
+                    if (highlighterActive) highlighterColorArgb.value = argb
+                    else penColorArgb.value = argb
                     showColorPicker = false
                 },
                 onDismiss = { showColorPicker = false },
