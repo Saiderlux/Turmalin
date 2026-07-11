@@ -25,6 +25,7 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** junto al slider continuo de grosor (RF-03), un campo numérico editable para escribir el valor exacto en mm o pt.
 **Por qué:** pedido explícito del usuario — el slider solo es impreciso para quien quiere repetir un grosor exacto entre sesiones.
 **Complejidad:** S. Es UI sobre un valor que ya existe (`strokeWidth`), sin tocar el modelo de datos.
+**Estado:** ✅ implementado (jul 2026) — `NumberField` compartido junto al slider, acepta coma decimal.
 
 ---
 
@@ -34,11 +35,13 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** tercer tipo de fondo de página junto a líneas y cuadrícula, con el mismo control de espaciado ajustable (RF-06).
 **Por qué:** excluido explícitamente del MVP; es el formato preferido para bullet journaling y diagramación libre, presente en Samsung Notes, GoodNotes y Noteful.
 **Complejidad:** S. Reutiliza el mecanismo de `PaperBackground.kt` existente para líneas/cuadrícula — solo cambia el patrón dibujado.
+**Estado:** ✅ implementado (jul 2026) — `PaperStyle.DOTS` en pantalla y PDF, sin migración.
 
 ### 2.2 Tamaño de página con input numérico
 **Qué:** junto al selector de formatos predefinidos (Carta, Oficio, A4, Legal — RF-06a), permitir escribir ancho × alto exactos en vez de solo elegir de la lista o mover un slider.
 **Por qué:** pedido explícito del usuario — mismo argumento que 1.3, aplicado a dimensiones de página en vez de grosor de trazo.
 **Complejidad:** S. El modelo ya soporta tamaño personalizado (RF-06a lo menciona); es exponer el campo numérico en la UI de ajustes de página.
+**Estado:** ✅ ya estaba implementado en v1 (campos ancho×alto en mm del modo "Personalizado" de ajustes de página) — detectado al planear la primera tanda de v2; no requirió trabajo.
 
 ### 2.3 Plantillas de papel personalizadas y guardables (tipos de nota)
 **Qué:** el usuario define una combinación de fondo (líneas/cuadrícula/puntos + espaciado + tamaño de página) y la guarda como preset con nombre propio (ej. "Apuntes de clase", "Diagramas técnicos"). Al crear una nota nueva, puede elegir un preset en vez de reconfigurar cada vez.
@@ -53,6 +56,7 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** reemplazar los controles de texto de la toolbar (`InkToolbar.kt`) y menús por iconografía estándar Material, con tooltip/long-press para el label.
 **Por qué:** pedido explícito del usuario; además reduce el ancho ocupado por la barra de herramientas en tablet, dejando más área de canvas visible — relevante en la Tab S6 Lite que ya tiene pantalla reducida.
 **Complejidad:** S. Es swap de composables existentes (`Components.kt`, `InkToolbar.kt`) por `Icon` + `IconButton`, sin tocar lógica.
+**Estado:** ✅ implementado (jul 2026) — `AppIcons.kt` con vectores propios (sin dependencia nueva), `AppIconButton` con label por long-press.
 
 ### 3.2 Revisión general de UX/UI
 **Qué:** pase de pulido visual sobre pantallas existentes (galería, nota, grafo, ajustes) una vez estén claras las adiciones de v2 — jerarquía visual, espaciado, estados de carga/vacío, feedback táctil.
@@ -83,6 +87,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 **Qué:** hoy una nota vive en un único cuaderno (RF-14, "mover"). Permitir que aparezca listada en más de un cuaderno sin duplicar archivo ni UUID — el cuaderno pasa de "carpeta exclusiva" a "colección"/etiqueta de agrupación visual.
 **Por qué:** gap detectado frente al modelo de "card en múltiples whiteboards" de Heptabase; evita el dilema de "¿en qué cuaderno la pongo si toca a dos temas?" que hoy se resuelve solo con tags. Confirmado por el usuario como buena idea a implementar.
 **Complejidad:** M. Cambia el modelo de datos: `notebookId: String?` único en `meta.json` pasaría a `notebookIds: List<String>`. Es una decisión de esquema que conviene tomar temprano en v2 si se va a hacer, para no migrar datos dos veces — candidata a priorizarse antes que otros ítems M/L de esta lista.
+**Estado:** ✅ implementado (jul 2026) — `notebookIds` en meta.json con migración de lectura de la clave legacy; diálogo multi-select en la galería.
 
 ---
 
@@ -104,22 +109,22 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 
 ## Resumen de complejidad
 
-| Sección | Ítem | Complejidad |
-|---|---|---|
-| 1. Escritura | 1.1 Tipos de lápiz | M |
-| | 1.2 Marcatextos | M |
-| | 1.3 Grosor numérico | S |
-| 2. Papel/plantillas | 2.1 Puntos | S |
-| | 2.2 Tamaño numérico | S |
-| | 2.3 Plantillas guardables | M |
-| 3. UX/UI | 3.1 Iconos | S |
-| | 3.2 Revisión UX/UI general | L (depende del resto) |
-| 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado |
-| | 4.2 Vista de tabla | M |
-| | 4.3 Repaso espaciado | L — recomendado diferir a v3 |
-| | 4.4 Multi-pertenencia a cuadernos | M — aprobado |
-| 5. Lasso de edición | Mover/redimensionar trazos | L — requiere diseño dedicado |
-| 6. Bridge Obsidian | Export unidireccional | M |
+| Sección | Ítem | Complejidad | Estado |
+|---|---|---|---|
+| 1. Escritura | 1.1 Tipos de lápiz | M | pendiente |
+| | 1.2 Marcatextos | M | pendiente |
+| | 1.3 Grosor numérico | S | ✅ hecho |
+| 2. Papel/plantillas | 2.1 Puntos | S | ✅ hecho |
+| | 2.2 Tamaño numérico | S | ✅ ya existía en v1 |
+| | 2.3 Plantillas guardables | M | pendiente |
+| 3. UX/UI | 3.1 Iconos | S | ✅ hecho |
+| | 3.2 Revisión UX/UI general | L (depende del resto) | pendiente |
+| 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
+| | 4.2 Vista de tabla | M | pendiente |
+| | 4.3 Repaso espaciado | L — recomendado diferir a v3 | pendiente |
+| | 4.4 Multi-pertenencia a cuadernos | M — aprobado | ✅ hecho |
+| 5. Lasso de edición | Mover/redimensionar trazos | L — requiere diseño dedicado | pendiente |
+| 6. Bridge Obsidian | Export unidireccional | M | pendiente |
 
 ## Nota de alcance
 
