@@ -202,6 +202,10 @@ fun InkCanvasScreen(
     // Ajustes globales (v2 3.4): toggles de gestos rápidos y del atajo RF-05c.
     // Capturados al abrir la nota — solo se editan con el canvas cerrado.
     appSettings: AppSettings = AppSettings(),
+    // Lápices pineados (v2 1.4): la lista vive en el llamador (que la
+    // persiste); aquí solo se selecciona/añade/quita.
+    pins: List<PenPin> = emptyList(),
+    onPinsChange: (List<PenPin>) -> Unit = {},
     // Fondo de página (RF-06): capa de render bajo la tinta, nunca ink real.
     background: PaperBackground = PaperBackground(),
     // Tamaño de página (RF-06a): la hoja se dibuja como guía visual; el pan es
@@ -1067,6 +1071,30 @@ fun InkCanvasScreen(
                     lastEraserTool.value = tool
                 }
             },
+            pins = pins,
+            // Activar un pin (v2 1.4) restaura herramienta + familia + color +
+            // grosor tal como se guardaron.
+            onPinSelect = { pin ->
+                if (pin.familyOrdinal == FAMILY_HIGHLIGHTER) {
+                    selectedTool.value = Tool.HIGHLIGHTER
+                    highlighterColorArgb.value = pin.colorArgb
+                    highlighterSize.value = pin.size
+                } else {
+                    selectedTool.value = Tool.PEN
+                    penFamilyOrdinal.value = pin.familyOrdinal
+                    penColorArgb.value = pin.colorArgb
+                    penSize.value = pin.size
+                }
+            },
+            onPinAdd = {
+                val pin = if (selectedTool.value == Tool.HIGHLIGHTER) {
+                    PenPin(FAMILY_HIGHLIGHTER, highlighterColorArgb.value, highlighterSize.value)
+                } else {
+                    PenPin(penFamilyOrdinal.value, penColorArgb.value, penSize.value)
+                }
+                if (pin !in pins) onPinsChange(pins + pin)
+            },
+            onPinRemove = { pin -> onPinsChange(pins - pin) },
             onColorSelect = {
                 if (highlighterActive) highlighterColorArgb.value = it
                 else penColorArgb.value = it

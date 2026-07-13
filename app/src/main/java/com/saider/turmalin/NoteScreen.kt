@@ -103,6 +103,8 @@ fun NoteScreen(
 ) {
     val colors = Theme.colors
     val brush = remember { defaultBlackPen() }
+    // Lápices pineados (v2 1.4): compartidos entre notas vía settings.json.
+    val pins = remember { mutableStateListOf<PenPin>().apply { addAll(repo.loadPins()) } }
     // RF-09a: se restaura la última página abierta (coerción por si el meta
     // viene de una versión sin páginas o quedó inconsistente).
     val initialPage = remember { meta.lastPageIndex.coerceIn(0, meta.pageCount - 1) }
@@ -475,6 +477,12 @@ fun NoteScreen(
                 wetHighLatency = wetHighLatency,
                 eraserRouter = eraserRouter,
                 appSettings = appSettings,
+                pins = pins,
+                onPinsChange = { changed ->
+                    pins.clear()
+                    pins.addAll(changed)
+                    repo.savePins(changed)
+                },
                 background = paper,
                 pageSize = pageSizes.getOrElse(currentPage) { DEFAULT_PAGE_SIZE },
                 onSwipePage = { direction -> switchToPage(currentPage + direction) },

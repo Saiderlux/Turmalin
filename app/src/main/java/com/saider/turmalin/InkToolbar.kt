@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntSize
@@ -107,6 +109,12 @@ fun InkToolbar(
     // Familia de la pluma (v2 1.1); solo visible con la pluma seleccionada.
     penFamilyOrdinal: Int,
     onFamilySelect: (Int) -> Unit,
+    // Lápices pineados (v2 1.4): toque activa, long-press quita, "+" guarda
+    // la configuración vigente.
+    pins: List<PenPin>,
+    onPinSelect: (PenPin) -> Unit,
+    onPinAdd: () -> Unit,
+    onPinRemove: (PenPin) -> Unit,
     // RF-37: deshacer/rehacer de ink desde la barra (sin gestos táctiles, que
     // chocarían con el pan/zoom de RF-09a/09b). Atenuados sin pasos disponibles.
     canUndo: Boolean,
@@ -175,6 +183,25 @@ fun InkToolbar(
             enabled = canRedo,
             onClick = onRedo,
         )
+        // Pines (v2 1.4): siempre visibles para cambiar de lápiz favorito con
+        // cualquier herramienta activa. ¿El pin coincide con la config vigente?
+        // penColorArgb/penSize ya son los de la herramienta activa.
+        for (pin in pins) {
+            val pinIsHighlighter = pin.familyOrdinal == FAMILY_HIGHLIGHTER
+            val matchesTool =
+                pinIsHighlighter == (selectedTool == Tool.HIGHLIGHTER) &&
+                    (pinIsHighlighter || pin.familyOrdinal == penFamilyOrdinal)
+            PinButton(
+                pin = pin,
+                selected = selectedTool.drawsInk && matchesTool &&
+                    pin.colorArgb == penColorArgb && pin.size == penSize,
+                onSelect = { onPinSelect(pin) },
+                onRemove = { onPinRemove(pin) },
+            )
+        }
+        if (selectedTool.drawsInk) {
+            AddPinButton(onClick = onPinAdd)
+        }
     }
 
     // Familia de la pluma (v2 1.1): chips Lápiz/Pluma, solo con la pluma activa
@@ -399,20 +426,90 @@ private fun SizePreviewWedge(size: Float, colorArgb: Int, sizeRange: ClosedFloat
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(20.dp)) {
-            val w = this.size.width
-            val h = this.size.height
-            // Fracción del rango, con mínimo visible para que a grosor 1 la
-            // cuña siga leyéndose como cuña y no como línea.
-            val frac = ((size - sizeRange.start) /
-                (sizeRange.endInclusive - sizeRange.start)).coerceIn(0.12f, 1f)
-            val thick = h * 0.7f * frac
-            val path = Path().apply {
-                moveTo(0f, h * 0.9f)                  // punta delgada abajo-izq
-                lineTo(w, (h * 0.25f - thick / 2f).coerceAtLeast(0f))
-                lineTo(w, h * 0.25f + thick / 2f)
-                close()
-            }
-            drawPath(path, Color(colorArgb))
+            drawSizeWedge(size, sizeRange, colorArgb)
         }
+    }
+}
+
+/** Cuña diagonal delgada→gruesa cuyo extremo escala con [value] dentro de
+ *  [range]. Compartida por la vista previa de grosor y los pines (v2 1.4). */
+private fun DrawScope.drawSizeWedge(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    colorArgb: Int,
+) {
+    val w = size.width
+    val h = size.height
+    // Fracción del rango, con mínimo visible para que a grosor 1 la cuña siga
+    // leyéndose como cuña y no como línea.
+    val frac = ((value - range.start) /
+        (range.endInclusive - range.start)).coerceIn(0.12f, 1f)
+    val thick = h * 0.7f * frac
+    val path = Path().apply {
+        moveTo(0f, h * 0.9f)                  // punta delgada abajo-izq
+        lineTo(w, (h * 0.25f - thick / 2f).coerceAtLeast(0f))
+        lineTo(w, h * 0.25f + thick / 2f)
+        close()
+    }
+    drawPath(path, Color(colorArgb))
+}
+
+/**
+ * Pin de lápiz favorito (v2 1.4): cuña con el color y grosor del pin (los del
+ * marcatextos, translúcidos como su tinta). Toque = activar; long-press =
+ * quitar el pin. El borde accent marca el pin que coincide con la
+ * configuración vigente.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PinButton(
+    pin: PenPin,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val colors = Theme.colors
+    val highlighter = pin.familyOrdinal == FAMILY_HIGHLIGHTER
+    val range = if (highlighter) HIGHLIGHTER_SIZE_RANGE else PEN_SIZE_RANGE
+    val argb = if (highlighter) {
+        (pin.colorArgb and 0x00FFFFFF) or (HIGHLIGHTER_ALPHA shl 24)
+    } else {
+        pin.colorArgb
+    }
+    Box(
+        modifier = Modifier
+            .padding(3.dp)
+            .size(30.dp)
+            .background(colors.surface, RoundedCornerShape(8.dp))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) colors.accent else colors.outline,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .combinedClickable(onClick = onSelect, onLongClick = onRemove),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(20.dp)) {
+            drawSizeWedge(pin.size, range, argb)
+        }
+    }
+}
+
+/** Añade la configuración vigente como pin (v2 1.4). */
+@Composable
+private fun AddPinButton(onClick: () -> Unit) {
+    val colors = Theme.colors
+    Box(
+        modifier = Modifier
+            .padding(3.dp)
+            .size(30.dp)
+            .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            text = "+",
+            style = TextStyle(color = colors.textHint, fontSize = AppType.title),
+        )
     }
 }
