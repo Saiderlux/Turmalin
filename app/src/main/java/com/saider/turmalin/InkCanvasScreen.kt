@@ -334,7 +334,7 @@ fun InkCanvasScreen(
     // curso y centro real de la barra (para decidir el borde al soltar).
     var dockEdge by rememberSaveable { mutableStateOf(DockEdge.TOP) }
     var toolbarDragOffset by remember { mutableStateOf(Offset.Zero) }
-    var toolbarCenter by remember { mutableStateOf(Offset.Zero) }
+    var toolbarTopLeft by remember { mutableStateOf(Offset.Zero) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
     // Palm rejection local al canvas (ver listener del FrameLayout): el resto
@@ -1108,7 +1108,9 @@ fun InkCanvasScreen(
             onDrag = { delta -> toolbarDragOffset += delta },
             onDragEnd = {
                 if (canvasSize.width > 0) {
-                    dockEdge = nearestDockEdge(toolbarCenter, canvasSize)
+                    // La esquina superior-izquierda de la barra ≈ el asa, que
+                    // es donde terminó el dedo del usuario.
+                    dockEdge = nearestDockEdge(toolbarTopLeft, canvasSize)
                 }
                 toolbarDragOffset = Offset.Zero
             },
@@ -1122,11 +1124,7 @@ fun InkCanvasScreen(
                     )
                 }
                 .onGloballyPositioned { coords ->
-                    val pos = coords.positionInParent()
-                    toolbarCenter = Offset(
-                        pos.x + coords.size.width / 2f,
-                        pos.y + coords.size.height / 2f,
-                    )
+                    toolbarTopLeft = coords.positionInParent()
                 },
         )
 

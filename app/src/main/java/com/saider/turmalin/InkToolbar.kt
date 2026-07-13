@@ -73,15 +73,19 @@ val DockEdge.isVertical: Boolean
     get() = this == DockEdge.LEFT || this == DockEdge.RIGHT
 
 /**
- * Borde más cercano al centro de la barra al soltarla: decide dónde se acopla.
+ * Borde más cercano al ASA de la barra al soltarla: decide dónde se acopla.
+ * El asa (⠿, esquina superior-izquierda de la barra) es donde está el dedo del
+ * usuario — su intención directa. Ni el centro (una barra ancha jamás acerca
+ * su centro a un lado) ni la caja (una barra a todo lo ancho "toca" ambos
+ * lados a la vez y el empate sale aleatorio) sirven de señal.
  * Función pura para poder testear el snap sin Compose.
  */
-fun nearestDockEdge(center: Offset, canvas: IntSize): DockEdge {
+fun nearestDockEdge(handleCorner: Offset, canvas: IntSize): DockEdge {
     val distances = mapOf(
-        DockEdge.LEFT to center.x,
-        DockEdge.RIGHT to canvas.width - center.x,
-        DockEdge.TOP to center.y,
-        DockEdge.BOTTOM to canvas.height - center.y,
+        DockEdge.LEFT to handleCorner.x,
+        DockEdge.RIGHT to canvas.width - handleCorner.x,
+        DockEdge.TOP to handleCorner.y,
+        DockEdge.BOTTOM to canvas.height - handleCorner.y,
     )
     return distances.minBy { it.value }.key
 }
