@@ -82,6 +82,7 @@ fun GalleryScreen(
     onSetNotebooks: (NoteMeta, List<String>) -> Unit,
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenSettings: () -> Unit,
     onDeleteNote: (NoteMeta) -> Unit,
     deleteUndo: NoteMeta?,
     onUndoDeleteNote: () -> Unit,
@@ -108,6 +109,7 @@ fun GalleryScreen(
                 onNewNotebook = { dialog = GalleryDialog.NewNotebook },
                 onOpenGraph = onOpenGraph,
                 onOpenTrash = onOpenTrash,
+                onOpenSettings = onOpenSettings,
             )
 
             SearchField(query = state.query, onSetQuery = onSetQuery)
@@ -320,6 +322,7 @@ private fun GalleryHeader(
     onNewNotebook: () -> Unit,
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val colors = Theme.colors
     Row(
@@ -365,6 +368,15 @@ private fun GalleryHeader(
                 style = ButtonStyle.FILLED,
                 modifier = Modifier.padding(start = 8.dp),
             )
+            // v2 3.4: ajustes globales de la app.
+            Box(modifier = Modifier.padding(start = 8.dp)) {
+                AppIconButton(
+                    icon = AppIcons.Settings,
+                    label = "Ajustes",
+                    selected = false,
+                    onClick = onOpenSettings,
+                )
+            }
         }
     }
 }

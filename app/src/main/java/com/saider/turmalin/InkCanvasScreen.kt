@@ -199,6 +199,9 @@ fun InkCanvasScreen(
     strokes: SnapshotStateList<IdStroke>,
     wetHighLatency: Boolean = true,
     eraserRouter: StylusEraserRouter? = null,
+    // Ajustes globales (v2 3.4): toggles de gestos rápidos y del atajo RF-05c.
+    // Capturados al abrir la nota — solo se editan con el canvas cerrado.
+    appSettings: AppSettings = AppSettings(),
     // Fondo de página (RF-06): capa de render bajo la tinta, nunca ink real.
     background: PaperBackground = PaperBackground(),
     // Tamaño de página (RF-06a): la hoja se dibuja como guía visual; el pan es
@@ -764,10 +767,12 @@ fun InkCanvasScreen(
                         // botón lateral como "click derecho") y TOOL_TYPE_ERASER
                         // (digitalizadores que lo reportan como herramienta de
                         // borrado) — las tres son semántica estándar de Android.
-                        val buttonEraser =
-                            event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY) ||
-                                event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) ||
-                                event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+                        val buttonEraser = appSettings.stylusButtonEraser &&
+                            (
+                                event.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY) ||
+                                    event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) ||
+                                    event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+                                )
                         val newTemporary = if (buttonEraser) lastEraserTool.value else null
                         if (newTemporary != temporaryEraserTool.value) {
                             // Log de transición: evidencia para diagnóstico remoto

@@ -87,6 +87,8 @@ fun NoteScreen(
     repo: NoteRepository,
     wetHighLatency: Boolean,
     eraserRouter: StylusEraserRouter?,
+    // Ajustes globales (v2 3.4): gestos rápidos y atajo del botón del S Pen.
+    appSettings: AppSettings,
     focusTitleOnOpen: Boolean,
     // Al cerrar entrega el meta guardado y si la tinta cambió en la sesión
     // (dirty flag): decide si se dispara el OCR (RF-24). Editar solo el
@@ -472,6 +474,7 @@ fun NoteScreen(
                 history = inkHistory,
                 wetHighLatency = wetHighLatency,
                 eraserRouter = eraserRouter,
+                appSettings = appSettings,
                 background = paper,
                 pageSize = pageSizes.getOrElse(currentPage) { DEFAULT_PAGE_SIZE },
                 onSwipePage = { direction -> switchToPage(currentPage + direction) },

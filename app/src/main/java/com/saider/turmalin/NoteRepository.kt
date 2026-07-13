@@ -214,6 +214,30 @@ fun parseTemplates(jsonText: String): List<NoteTemplate> = runCatching {
 }.getOrElse { emptyList() }
 
 /**
+ * Ajustes globales de la app (v2 3.4): toggles de comportamientos opcionales,
+ * persistidos bajo la clave `app` de settings.json. Cada gesto/atajo se puede
+ * apagar sin perder la función equivalente de la barra de herramientas.
+ */
+data class AppSettings(
+    // v2 3.3: tap de dos dedos = deshacer; tap de tres = rehacer.
+    val gestureUndo: Boolean = true,
+    val gestureRedo: Boolean = true,
+    // RF-05c: mantener el botón del S Pen activa la goma temporal.
+    val stylusButtonEraser: Boolean = true,
+)
+
+/**
+ * Lápiz pineado (v2 1.4): combinación favorita de familia + color + grosor,
+ * seleccionable con un toque desde la barra. La familia marcatextos pina la
+ * herramienta marcatextos; las demás, la pluma.
+ */
+data class PenPin(
+    val familyOrdinal: Int,
+    val colorArgb: Int,
+    val size: Float,
+)
+
+/**
  * Ajustes del grafo (estilo Obsidian): perillas de la simulación de fuerzas y del
  * render, persistidas bajo la clave `graph` de settings.json. Los defaults igualan
  * las constantes históricas de [GraphSimulation] y [GraphScreen].
@@ -498,6 +522,78 @@ class NoteRepository(context: Context) {
         val json = JSONObject()
         for ((uuid, connected) in graph) json.put(uuid, JSONArray(connected.toList()))
         graphFile.writeText(json.toString())
+    }
+
+    // --- Ajustes globales (v2 3.4): clave `app` de settings.json ---
+
+    /** Ajustes de la app; ausente/corrupto ⇒ defaults (RNF-07). */
+    fun loadAppSettings(): AppSettings {
+        if (!settingsFile.exists()) return AppSettings()
+        return runCatching {
+            val a = JSONObject(settingsFile.readText()).optJSONObject("app")
+                ?: return AppSettings()
+            val d = AppSettings()
+            AppSettings(
+                gestureUndo = a.optBoolean("gestureUndo", d.gestureUndo),
+                gestureRedo = a.optBoolean("gestureRedo", d.gestureRedo),
+                stylusButtonEraser = a.optBoolean("stylusButtonEraser", d.stylusButtonEraser),
+            )
+        }.getOrDefault(AppSettings())
+    }
+
+    /** Persiste los ajustes de la app sin tocar otras claves de settings.json. */
+    fun saveAppSettings(s: AppSettings) {
+        settingsFile.parentFile?.mkdirs()
+        val json = runCatching { JSONObject(settingsFile.readText()) }.getOrElse { JSONObject() }
+        json.put(
+            "app",
+            JSONObject()
+                .put("gestureUndo", s.gestureUndo)
+                .put("gestureRedo", s.gestureRedo)
+                .put("stylusButtonEraser", s.stylusButtonEraser),
+        )
+        settingsFile.writeText(json.toString())
+    }
+
+    // --- Lápices pineados (v2 1.4): clave `pins` de settings.json ---
+
+    /** Pines de lápiz favoritos, en el orden en que se guardaron. */
+    fun loadPins(): List<PenPin> {
+        if (!settingsFile.exists()) return emptyList()
+        return runCatching {
+            val array = JSONObject(settingsFile.readText()).optJSONArray("pins")
+                ?: return emptyList()
+            buildList {
+                for (i in 0 until array.length()) {
+                    runCatching {
+                        val json = array.getJSONObject(i)
+                        add(
+                            PenPin(
+                                familyOrdinal = json.getInt("family"),
+                                colorArgb = json.getInt("color"),
+                                size = json.getDouble("size").toFloat(),
+                            )
+                        )
+                    }
+                }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    fun savePins(pins: List<PenPin>) {
+        settingsFile.parentFile?.mkdirs()
+        val json = runCatching { JSONObject(settingsFile.readText()) }.getOrElse { JSONObject() }
+        val array = JSONArray()
+        for (pin in pins) {
+            array.put(
+                JSONObject()
+                    .put("family", pin.familyOrdinal)
+                    .put("color", pin.colorArgb)
+                    .put("size", pin.size.toDouble()),
+            )
+        }
+        json.put("pins", array)
+        settingsFile.writeText(json.toString())
     }
 
     // --- Ajustes del grafo: clave `graph` de settings.json, preservando el resto ---

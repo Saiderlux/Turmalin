@@ -295,6 +295,50 @@ fun NumberField(
     )
 }
 
+/** Fila de ajuste con interruptor (v2 3.4): etiqueta + pista/perilla mínimas
+ *  sin Material. Toda la fila es tocable. */
+@Composable
+fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Theme.colors
+    Row(
+        modifier = modifier
+            .clickable { onToggle(!checked) }
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicText(
+            text = label,
+            style = TextStyle(color = colors.textPrimary, fontSize = AppType.label),
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            modifier = Modifier
+                .size(width = 46.dp, height = 26.dp)
+                .background(
+                    if (checked) colors.accent else colors.surfaceVariant,
+                    RoundedCornerShape(13.dp),
+                )
+                .border(1.dp, if (checked) colors.accent else colors.outline, RoundedCornerShape(13.dp))
+                .padding(3.dp),
+            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .background(
+                        if (checked) colors.onAccent else colors.textHint,
+                        RoundedCornerShape(10.dp),
+                    ),
+            )
+        }
+    }
+}
+
 // --- Hints de primer uso (heurística 10) ---
 
 private const val HINTS_PREFS = "first_use_hints"

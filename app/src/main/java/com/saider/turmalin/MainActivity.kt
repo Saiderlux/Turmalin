@@ -24,6 +24,9 @@ class MainActivity : ComponentActivity() {
     // El atajo de goma solo aplica con el canvas abierto.
     private var canvasOpen = false
 
+    // v2 3.4: espejo del toggle RF-05c para dispatchTouchEvent (que no ve Compose).
+    private var stylusEraserEnabled = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Render de la capa wet (ver InkCanvasScreen). Default: helper clásico V21,
@@ -43,14 +46,29 @@ class MainActivity : ComponentActivity() {
             var focusTitleOnOpen by remember { mutableStateOf(false) }
             var showGraph by remember { mutableStateOf(false) }
             var showTrash by remember { mutableStateOf(false) }
+            var showSettings by remember { mutableStateOf(false) }
+            // v2 3.4: ajustes globales; cada cambio persiste al instante.
+            var appSettings by remember { mutableStateOf(repo.loadAppSettings()) }
             val titleNudge by viewModel.titleNudge.collectAsState()
             val deleteUndo by viewModel.deleteUndo.collectAsState()
             val saveStatus by viewModel.saveStatus.collectAsState()
 
-            SideEffect { canvasOpen = openNote != null }
+            SideEffect {
+                canvasOpen = openNote != null
+                stylusEraserEnabled = appSettings.stylusButtonEraser
+            }
 
             val current = openNote
-            if (current == null && showGraph) {
+            if (current == null && showSettings) {
+                SettingsScreen(
+                    settings = appSettings,
+                    onChange = { changed ->
+                        appSettings = changed
+                        repo.saveAppSettings(changed)
+                    },
+                    onBack = { showSettings = false },
+                )
+            } else if (current == null && showGraph) {
                 GraphScreen(
                     repo = repo,
                     // RF-22: doble tap en un nodo abre la nota.
@@ -115,6 +133,7 @@ class MainActivity : ComponentActivity() {
                     onSetNotebooks = viewModel::setNotebooks,
                     onOpenGraph = { showGraph = true },
                     onOpenTrash = { showTrash = true },
+                    onOpenSettings = { showSettings = true },
                     onDeleteNote = viewModel::deleteNote,
                     deleteUndo = deleteUndo,
                     onUndoDeleteNote = viewModel::undoDeleteNote,
@@ -128,6 +147,7 @@ class MainActivity : ComponentActivity() {
                         repo = repo,
                         wetHighLatency = wetHighLatency,
                         eraserRouter = eraserRouter,
+                        appSettings = appSettings,
                         focusTitleOnOpen = focusTitleOnOpen,
                         onClose = { closed, inkChanged ->
                             openNote = null
@@ -182,7 +202,9 @@ class MainActivity : ComponentActivity() {
     // el interop Compose→AndroidView, así que el borrado se enruta desde el
     // único punto donde está garantizado que llega el gesto completo.
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (canvasOpen && hasEraserSignal(ev)) {
+        // v2 3.4: con el atajo RF-05c apagado no se enruta el stream de goma —
+        // el trazo con botón presionado se comporta como tinta normal.
+        if (canvasOpen && stylusEraserEnabled && hasEraserSignal(ev)) {
             eraserRouter.handler?.let { handle ->
                 handle(ev)
                 return true
