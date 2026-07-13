@@ -29,6 +29,11 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Complejidad:** S. Es UI sobre un valor que ya existe (`strokeWidth`), sin tocar el modelo de datos.
 **Estado:** ✅ implementado (jul 2026) — `NumberField` compartido junto al slider, acepta coma decimal.
 
+### 1.4 Lápices favoritos pineados y paletas guardadas
+**Qué:** pines de lápiz favorito al estilo Samsung Notes: el usuario guarda combinaciones concretas de herramienta (familia + color + grosor, incluido el marcatextos) y una fila de la barra permite cambiar entre ellas con un toque, sin reconfigurar. Complementario: guardar colores personalizados como presets propios (o paletas completas) que se suman a los 8 preestablecidos de RF-04.
+**Por qué:** pedido explícito del usuario; Samsung Notes y GoodNotes lo ofrecen y es el flujo real de quien alterna entre 2-3 plumas fijas mientras escribe (ej. negro fino para texto, rojo grueso para correcciones, amarillo para subrayar).
+**Complejidad:** M. Persistencia trivial (lista de pines en `settings.json`, mismo patrón que `templates.json` de 2.3); el trabajo real es de UI en `InkToolbar.kt`: fila de pines, gesto de guardar/quitar pin, y cómo convive con la fila de herramientas sin agrandar la barra (ver el fix del slider vertical — la barra ya está al límite de densidad).
+
 ---
 
 ## 2. Papel y plantillas
@@ -65,6 +70,16 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** pase de pulido visual sobre pantallas existentes (galería, nota, grafo, ajustes) una vez estén claras las adiciones de v2 — jerarquía visual, espaciado, estados de carga/vacío, feedback táctil.
 **Por qué:** pedido explícito del usuario; una vez la toolbar crece con más herramientas (1.1, 1.2) y plantillas (2.3), la superficie de UI actual necesita reorganizarse, no solo iconizarse.
 **Complejidad:** L, y depende de que 1.1–2.3 estén definidos primero — recomiendo abordarlo al final de esta fase, no en paralelo. Candidato a diseño propio (invocar `frontend-design` cuando se llegue a planificar esta sección).
+
+### 3.3 Gestos rápidos configurables
+**Qué:** gestos táctiles de atajo sobre el canvas, empezando por tap de dos dedos = deshacer (y su pareja natural: tap de tres dedos o doble tap de dos dedos = rehacer). Cada gesto debe poder activarse/desactivarse (ver 3.4).
+**Por qué:** pedido explícito del usuario; estándar en GoodNotes/Noteful — deshacer sin viajar a la barra mantiene la mano en posición de escritura.
+**Complejidad:** M. El riesgo no es la detección sino la convivencia con RF-09a/09b: el tap de dos dedos debe distinguirse del inicio de un pinch-to-zoom (umbral de movimiento/tiempo) y respetar el palm rejection existente. Vive en `TouchViewportGesture.kt`, que ya clasifica los gestos táctiles del canvas — extenderlo, no duplicarlo.
+
+### 3.4 Menú de ajustes de la app
+**Qué:** pantalla de configuración global (hoy no existe: solo hay ajustes de nota y del grafo) donde activar/desactivar comportamientos: gestos rápidos (3.3), atajo del botón del S Pen (RF-05c), umbral de sugerencia de dividir nota (RF-10, hoy solo editable a mano en `settings.json`), y los toggles que traigan features futuras.
+**Por qué:** pedido explícito del usuario; a medida que crecen los comportamientos opcionales hace falta un lugar único para gobernarlos — y `settings.json` ya existe como persistencia, solo carece de UI.
+**Complejidad:** M. Pantalla nueva de solo lectura/escritura sobre `settings.json` (mismo patrón read-modify-write de `GraphSettings`), accesible desde la galería. Sin modelo de datos nuevo; el costo es UI y el cableado de cada toggle hasta su feature.
 
 ---
 
@@ -117,11 +132,14 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 | 1. Escritura | 1.1 Tipos de lápiz | M | ✅ hecho (pincel pospuesto) |
 | | 1.2 Marcatextos | M | ✅ hecho |
 | | 1.3 Grosor numérico | S | ✅ hecho |
+| | 1.4 Lápices pineados y paletas | M | pendiente |
 | 2. Papel/plantillas | 2.1 Puntos | S | ✅ hecho |
 | | 2.2 Tamaño numérico | S | ✅ ya existía en v1 |
 | | 2.3 Plantillas guardables | M | ✅ hecho |
 | 3. UX/UI | 3.1 Iconos | S | ✅ hecho |
 | | 3.2 Revisión UX/UI general | L (depende del resto) | pendiente |
+| | 3.3 Gestos rápidos configurables | M | pendiente |
+| | 3.4 Menú de ajustes de la app | M | pendiente |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
 | | 4.2 Vista de tabla | M | pendiente |
 | | 4.3 Repaso espaciado | L — recomendado diferir a v3 | pendiente |
