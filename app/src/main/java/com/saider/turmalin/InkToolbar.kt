@@ -17,7 +17,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -26,6 +29,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
 
 // Paleta de plumas (RF-04): 8 colores básicos. Excluye a propósito el azul
 // reservado del overlay de links (RF-23a) para que la tinta no se confunda con
@@ -202,27 +206,58 @@ fun InkToolbar(
         )
     }
 
-    // Grosor continuo (RF-03): slider + punto de vista previa del grosor actual,
-    // más campo numérico (v2 1.3) para repetir un valor exacto entre sesiones.
+    // Controles de grosor (RF-03 + v2 1.3): slider continuo + campo numérico
+    // para repetir un valor exacto entre sesiones.
+    val sizeControls: @Composable () -> Unit = {
+        Box(modifier = Modifier.width(160.dp).padding(start = 6.dp)) {
+            GraphSlider(
+                label = "Grosor",
+                value = penSize,
+                range = sizeRange,
+                onChange = onSizeSelect,
+                onCommit = {},
+            )
+        }
+        NumberField(
+            value = penSize,
+            range = sizeRange,
+            onValue = onSizeSelect,
+            decimals = 1,
+            modifier = Modifier.width(56.dp).padding(start = 6.dp),
+        )
+    }
+
+    // Barra horizontal: los controles van inline junto a la vista previa.
     val sizeSlider: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SizePreviewDot(size = penSize, colorArgb = penColorArgb)
-            Box(modifier = Modifier.width(160.dp).padding(start = 6.dp)) {
-                GraphSlider(
-                    label = "Grosor",
-                    value = penSize,
-                    range = sizeRange,
-                    onChange = onSizeSelect,
-                    onCommit = {},
-                )
+            sizeControls()
+        }
+    }
+
+    // Barra vertical: el slider de 160dp agigantaría la barra — se colapsa tras
+    // el punto de vista previa, que al tocarse despliega los controles en un
+    // popup horizontal junto a la barra.
+    val sizeButton: @Composable () -> Unit = {
+        var showSlider by remember { mutableStateOf(false) }
+        Box {
+            Box(modifier = Modifier.clickable { showSlider = true }) {
+                SizePreviewDot(size = penSize, colorArgb = penColorArgb)
             }
-            NumberField(
-                value = penSize,
-                range = sizeRange,
-                onValue = onSizeSelect,
-                decimals = 1,
-                modifier = Modifier.width(56.dp).padding(start = 6.dp),
-            )
+            if (showSlider) {
+                Popup(onDismissRequest = { showSlider = false }) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(colors.surface, RoundedCornerShape(12.dp))
+                            .border(1.dp, colors.outlineVariant, RoundedCornerShape(12.dp))
+                            .padding(8.dp),
+                    ) {
+                        SizePreviewDot(size = penSize, colorArgb = penColorArgb)
+                        sizeControls()
+                    }
+                }
+            }
         }
     }
 
@@ -242,7 +277,7 @@ fun InkToolbar(
                 ) {
                     if (selectedTool == Tool.PEN) familyChips()
                     palette()
-                    sizeSlider()
+                    sizeButton()
                 }
             }
         }
