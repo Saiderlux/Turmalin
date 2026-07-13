@@ -1,5 +1,6 @@
 package com.saider.turmalin
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntSize
@@ -230,7 +232,7 @@ fun InkToolbar(
     // Barra horizontal: los controles van inline junto a la vista previa.
     val sizeSlider: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SizePreviewDot(size = penSize, colorArgb = penColorArgb)
+            SizePreviewWedge(size = penSize, colorArgb = penColorArgb, sizeRange = sizeRange)
             sizeControls()
         }
     }
@@ -242,7 +244,7 @@ fun InkToolbar(
         var showSlider by remember { mutableStateOf(false) }
         Box {
             Box(modifier = Modifier.clickable { showSlider = true }) {
-                SizePreviewDot(size = penSize, colorArgb = penColorArgb)
+                SizePreviewWedge(size = penSize, colorArgb = penColorArgb, sizeRange = sizeRange)
             }
             if (showSlider) {
                 Popup(onDismissRequest = { showSlider = false }) {
@@ -253,7 +255,7 @@ fun InkToolbar(
                             .border(1.dp, colors.outlineVariant, RoundedCornerShape(12.dp))
                             .padding(8.dp),
                     ) {
-                        SizePreviewDot(size = penSize, colorArgb = penColorArgb)
+                        SizePreviewWedge(size = penSize, colorArgb = penColorArgb, sizeRange = sizeRange)
                         sizeControls()
                     }
                 }
@@ -380,23 +382,37 @@ private fun CustomColorSwatch(penColorArgb: Int, selected: Boolean, onClick: () 
     }
 }
 
-/** Vista previa del grosor actual (RF-03): punto que crece con el slider. */
+/**
+ * Vista previa del grosor actual (RF-03): cuña diagonal que empieza delgada y
+ * termina gruesa — el lenguaje visual estándar de "grosor de trazo". Botón
+ * cuadrado a propósito: el círculo anterior se confundía con una muestra más
+ * de la paleta de colores. El extremo grueso escala con el valor del slider.
+ */
 @Composable
-private fun SizePreviewDot(size: Float, colorArgb: Int) {
+private fun SizePreviewWedge(size: Float, colorArgb: Int, sizeRange: ClosedFloatingPointRange<Float>) {
     val colors = Theme.colors
     Box(
         modifier = Modifier
             .size(30.dp)
-            .clip(CircleShape)
-            .background(colors.surface)
-            .border(1.dp, colors.outlineVariant, CircleShape),
+            .background(colors.surface, RoundedCornerShape(8.dp))
+            .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size((4f + size * 1.4f).dp)
-                .clip(CircleShape)
-                .background(Color(colorArgb)),
-        )
+        Canvas(modifier = Modifier.size(20.dp)) {
+            val w = this.size.width
+            val h = this.size.height
+            // Fracción del rango, con mínimo visible para que a grosor 1 la
+            // cuña siga leyéndose como cuña y no como línea.
+            val frac = ((size - sizeRange.start) /
+                (sizeRange.endInclusive - sizeRange.start)).coerceIn(0.12f, 1f)
+            val thick = h * 0.7f * frac
+            val path = Path().apply {
+                moveTo(0f, h * 0.9f)                  // punta delgada abajo-izq
+                lineTo(w, (h * 0.25f - thick / 2f).coerceAtLeast(0f))
+                lineTo(w, h * 0.25f + thick / 2f)
+                close()
+            }
+            drawPath(path, Color(colorArgb))
+        }
     }
 }
