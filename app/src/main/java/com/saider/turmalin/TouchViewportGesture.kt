@@ -29,6 +29,10 @@ const val PALM_TOUCH_MAJOR_MM = 22f
 // callback a mitad de contacto, lo cual basta para un menú contextual.
 const val LONG_PRESS_MILLIS = 500L
 
+// Duración máxima de un tap multi-dedo (v2 3.3: dos dedos deshace, tres
+// rehace). Más largo ya es el inicio de un pinch/pan sostenido, no un tap.
+const val MULTI_FINGER_TAP_MILLIS = 300L
+
 private const val NO_POINTER = -1
 
 /** Posición de un puntero táctil presionado en un evento (px de pantalla). */
@@ -55,6 +59,10 @@ class TouchViewportGesture(
     // Contacto quieto de al menos LONG_PRESS_MILLIS: menú contextual (eliminar
     // vínculo). Se distingue del tap por duración, al soltar el dedo.
     private val onLongPress: (screenX: Float, screenY: Float) -> Unit = { _, _ -> },
+    // v2 3.3: tap breve con [fingers] dedos (2 = deshacer, 3 = rehacer). Solo
+    // dispara si el gesto no comprometió pinch/pan ni paginó y ningún puntero
+    // fue rechazado como palma — una palma apoyada + un dedo no es un tap.
+    private val onMultiFingerTap: (fingers: Int) -> Unit = {},
 ) {
     // Punteros aceptados (no palma) actualmente presionados.
     private val pressed = LinkedHashSet<Int>()
@@ -68,6 +76,11 @@ class TouchViewportGesture(
     private var firstDownRejected = false
     private var sawMultiple = false
     private var movedBeyondSlop = false
+
+    // Tap multi-dedo (v2 3.3): máximo de dedos simultáneos del gesto y si
+    // alguno fue cancelado como palma (lo que invalida el tap).
+    private var maxPressed = 0
+    private var anyCanceled = false
 
     // Una página por gesto: tras disparar onPaginate el resto del arrastre es inerte.
     private var paged = false
@@ -92,6 +105,7 @@ class TouchViewportGesture(
         if (isPalm) return
         pressed.add(id)
         if (pressed.size >= 2) sawMultiple = true
+        if (pressed.size > maxPressed) maxPressed = pressed.size
         if (firstDownId == NO_POINTER && pressed.size == 1) {
             // Primer dedo del gesto (o dedo nuevo con solo la palma apoyada):
             // arranca limpio como candidato a tap/swipe.
@@ -105,12 +119,15 @@ class TouchViewportGesture(
             paged = false
             accumSwipeX = 0f
             accumSwipeY = 0f
+            maxPressed = 1
+            anyCanceled = false
         }
     }
 
     /** El sistema (o el heurístico de área) canceló este puntero como palma. */
     fun pointerCanceled(id: Int) {
         pressed.remove(id)
+        anyCanceled = true
         if (id == firstDownId) firstDownRejected = true
     }
 
@@ -128,6 +145,16 @@ class TouchViewportGesture(
             }
             firstDownId = NO_POINTER
         }
+        // Tap multi-dedo (v2 3.3): se resuelve cuando el último dedo sube, si
+        // el gesto fue breve, quieto (sin pinch comprometido, sin slop, sin
+        // paginar) y sin palmas de por medio.
+        if (pressed.isEmpty() && maxPressed >= 2 &&
+            !pinchCommitted && !movedBeyondSlop && !paged && !anyCanceled &&
+            nowMillis - firstDownAtMillis < MULTI_FINGER_TAP_MILLIS
+        ) {
+            onMultiFingerTap(maxPressed)
+        }
+        if (pressed.isEmpty()) maxPressed = 0
     }
 
     /** Todos los punteros presionados del evento actual (la máquina filtra los suyos). */
@@ -218,6 +245,8 @@ class TouchViewportGesture(
         lastIds = emptyList()
         prevDistance = 0f
         pinchCommitted = false
+        maxPressed = 0
+        anyCanceled = false
         viewport.snapToIdentityIfClose()
     }
 }

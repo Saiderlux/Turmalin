@@ -15,11 +15,13 @@ class TouchViewportGestureTest {
 
     private var pagedDirection: Int? = null
     private var tapAt: Pair<Float, Float>? = null
+    private var multiTapFingers: Int? = null
 
     private fun gesture(viewport: CanvasViewport) = TouchViewportGesture(
         viewport = viewport,
         onPaginate = { pagedDirection = it },
         onTap = { x, y -> tapAt = x to y },
+        onMultiFingerTap = { multiTapFingers = it },
     )
 
     // Saca el viewport de la banda de identidad para que el pan aplique.
@@ -163,5 +165,76 @@ class TouchViewportGestureTest {
         assertTrue(viewport.isNearIdentity)
         assertEquals(0f, viewport.offsetX, epsilon)
         assertEquals(0f, viewport.offsetY, epsilon)
+    }
+
+    // --- Tap multi-dedo (v2 3.3) ---
+
+    @Test
+    fun `tap breve de dos dedos dispara el gesto con 2`() {
+        val g = gesture(CanvasViewport())
+        g.pointerDown(0, 100f, 100f, isPalm = false, nowMillis = 0L)
+        g.pointerDown(1, 160f, 100f, isPalm = false, nowMillis = 20L)
+        g.move(listOf(TouchPoint(0, 100f, 100f), TouchPoint(1, 160f, 100f)))
+        g.pointerUp(0, nowMillis = 120L)
+        g.pointerUp(1, nowMillis = 140L)
+        assertEquals(2, multiTapFingers)
+    }
+
+    @Test
+    fun `tap breve de tres dedos dispara el gesto con 3`() {
+        val g = gesture(CanvasViewport())
+        g.pointerDown(0, 100f, 100f, isPalm = false, nowMillis = 0L)
+        g.pointerDown(1, 160f, 100f, isPalm = false, nowMillis = 10L)
+        g.pointerDown(2, 220f, 100f, isPalm = false, nowMillis = 20L)
+        g.pointerUp(0, nowMillis = 100L)
+        g.pointerUp(1, nowMillis = 110L)
+        g.pointerUp(2, nowMillis = 120L)
+        assertEquals(3, multiTapFingers)
+    }
+
+    @Test
+    fun `pinch comprometido no cuenta como tap de dos dedos`() {
+        val viewport = zoomedViewport()
+        val g = gesture(viewport)
+        g.pointerDown(0, 100f, 200f, isPalm = false, nowMillis = 0L)
+        g.pointerDown(1, 200f, 200f, isPalm = false, nowMillis = 10L)
+        g.move(listOf(TouchPoint(0, 100f, 200f), TouchPoint(1, 200f, 200f)))
+        // Separación +100px: compromete el pinch.
+        g.move(listOf(TouchPoint(0, 50f, 200f), TouchPoint(1, 250f, 200f)))
+        g.pointerUp(0, nowMillis = 100L)
+        g.pointerUp(1, nowMillis = 110L)
+        assertEquals(null, multiTapFingers)
+    }
+
+    @Test
+    fun `contacto largo de dos dedos no cuenta como tap`() {
+        val g = gesture(CanvasViewport())
+        g.pointerDown(0, 100f, 100f, isPalm = false, nowMillis = 0L)
+        g.pointerDown(1, 160f, 100f, isPalm = false, nowMillis = 10L)
+        g.pointerUp(0, nowMillis = 500L)
+        g.pointerUp(1, nowMillis = 520L)
+        assertEquals(null, multiTapFingers)
+    }
+
+    @Test
+    fun `palma cancelada mas un dedo no cuenta como tap de dos dedos`() {
+        val g = gesture(CanvasViewport())
+        g.pointerDown(0, 100f, 100f, isPalm = false, nowMillis = 0L)
+        g.pointerDown(1, 400f, 400f, isPalm = false, nowMillis = 10L)
+        // El sistema clasifica el segundo contacto como palma después del down.
+        g.pointerCanceled(1)
+        g.pointerUp(0, nowMillis = 100L)
+        assertEquals(null, multiTapFingers)
+        // Y tampoco degenera en tap simple (hubo dos contactos).
+        assertEquals(null, tapAt)
+    }
+
+    @Test
+    fun `el tap simple de un dedo sigue funcionando igual`() {
+        val g = gesture(CanvasViewport())
+        g.pointerDown(0, 100f, 100f, isPalm = false, nowMillis = 0L)
+        g.pointerUp(0, nowMillis = 80L)
+        assertEquals(100f to 100f, tapAt)
+        assertEquals(null, multiTapFingers)
     }
 }

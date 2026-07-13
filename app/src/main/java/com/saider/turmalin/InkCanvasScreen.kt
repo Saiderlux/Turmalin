@@ -239,6 +239,31 @@ fun InkCanvasScreen(
     val currentOnLassoComplete = rememberUpdatedState(onLassoComplete)
     val currentOnLinkTap = rememberUpdatedState(onLinkTap)
     val currentOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
+
+    // RF-37 compartido por la barra y los gestos rápidos (v2 3.3): deshacer/
+    // rehacer restauran la instantánea y encienden el dirty flag de tinta.
+    val doUndo: () -> Unit = {
+        history.undo(strokes.toList())?.let { previous ->
+            strokes.clear()
+            strokes.addAll(previous)
+            onInkModified()
+        }
+    }
+    val doRedo: () -> Unit = {
+        history.redo(strokes.toList())?.let { next ->
+            strokes.clear()
+            strokes.addAll(next)
+            onInkModified()
+        }
+    }
+    // v2 3.3: tap de dos dedos deshace, de tres rehace — cada uno tras su
+    // toggle de ajustes (v2 3.4). Holder para los closures del factory.
+    val currentOnMultiFingerTap = rememberUpdatedState<(Int) -> Unit>({ fingers ->
+        when {
+            fingers == 2 && appSettings.gestureUndo -> doUndo()
+            fingers >= 3 && appSettings.gestureRedo -> doRedo()
+        }
+    })
     val currentOnStrokesErased = rememberUpdatedState(onStrokesErased)
 
     // Polilínea del lazo en curso (coordenadas de documento, plana x,y).
@@ -665,6 +690,9 @@ fun InkCanvasScreen(
                     onLongPress = { x, y ->
                         linkAt(x, y)?.let { currentOnLinkLongPress.value(it.targetUuid) }
                     },
+                    onMultiFingerTap = { fingers ->
+                        currentOnMultiFingerTap.value(fingers)
+                    },
                 )
 
                 // ¿Este puntero es palma al momento del down? Algunos stacks lo
@@ -1030,22 +1058,8 @@ fun InkCanvasScreen(
             onFamilySelect = { penFamilyOrdinal.value = it },
             canUndo = history.canUndo,
             canRedo = history.canRedo,
-            // RF-37: deshacer/rehacer restauran la instantánea y encienden el
-            // dirty flag de tinta (el contenido de la página sí cambió).
-            onUndo = {
-                history.undo(strokes.toList())?.let { previous ->
-                    strokes.clear()
-                    strokes.addAll(previous)
-                    onInkModified()
-                }
-            },
-            onRedo = {
-                history.redo(strokes.toList())?.let { next ->
-                    strokes.clear()
-                    strokes.addAll(next)
-                    onInkModified()
-                }
-            },
+            onUndo = doUndo,
+            onRedo = doRedo,
             onToolSelect = { tool ->
                 selectedTool.value = tool
                 // El atajo del botón del S Pen solo recuerda gomas (RF-05c).
