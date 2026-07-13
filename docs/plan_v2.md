@@ -98,6 +98,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 **Qué:** vista alternativa a la galería tipo grid, listando notas como filas con columnas ordenables/filtrables (título, cuaderno, tags, fecha, nº de links entrantes/salientes).
 **Por qué:** gap detectado frente a Heptabase (Table view) y Obsidian (Bases/Dataview) — para vaults grandes, la galería en grid deja de ser suficiente para auditar el conocimiento acumulado.
 **Complejidad:** M. Es una vista de solo lectura sobre metadata que ya existe en `meta.json` y `graph.json`, sin nuevo almacenamiento.
+**Estado:** ✅ implementado (jul 2026) — toggle cuadrícula/tabla en el header (persistido); columnas título/cuaderno/tags/fecha/links ordenables al tocar; en la raíz lista el vault completo.
 
 ### 4.3 Repaso espaciado sobre notas (spaced repetition)
 **Qué:** marcar una nota o región como "tarjeta de repaso" y que el sistema la resurfacee periódicamente para reforzar memoria, similar a las flashcards de Heptabase.
@@ -125,6 +126,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 **Qué:** exportar la estructura del vault (notas, links, tags) a un formato que Obsidian pueda importar — probablemente un `.md` por nota con front-matter de tags y un link `[[uuid o título]]` por cada `LinkRegion`, más adjuntar el PDF de cada nota como referencia visual ya que el ink no es texto editable en Obsidian.
 **Por qué:** excluido explícitamente del MVP; el propio pitch del proyecto se apoya en el modelo mental de Obsidian, así que un puente de salida (no sync, solo export unidireccional) cierra el círculo para quien ya usa Obsidian para el resto de su conocimiento en texto.
 **Complejidad:** M. No rompe "cero red" (RF-32) porque es exportación a disco local, igual que el PDF (RF-28) — reutiliza el mismo flujo de SAF (`ACTION_CREATE_DOCUMENT`) ya construido para PDF. El riesgo no es técnico sino de alcance: definir bien que es exportación unidireccional (snapshot), no sincronización — sync bidireccional con Obsidian sí sería una dependencia de complejidad injustificada para este proyecto.
+**Estado:** ✅ implementado (jul 2026) — botón en Ajustes → carpeta vía SAF (árbol de documentos): un `.md` por nota (front-matter uuid/título/tags/fechas, cuerpo OCR, `[[wikilinks]]` salientes) + el PDF vectorial embebido; nombres desambiguados con uuid corto. Snapshot unidireccional, nunca sync.
 
 ---
 
@@ -144,11 +146,11 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 | | 3.3 Gestos rápidos configurables | M | ✅ hecho |
 | | 3.4 Menú de ajustes de la app | M | ✅ hecho |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
-| | 4.2 Vista de tabla | M | pendiente |
+| | 4.2 Vista de tabla | M | ✅ hecho |
 | | 4.3 Repaso espaciado | L — recomendado diferir a v3 | pendiente |
 | | 4.4 Multi-pertenencia a cuadernos | M — aprobado | ✅ hecho |
 | 5. Lasso de edición | Mover/redimensionar trazos | L — requiere diseño dedicado | pendiente |
-| 6. Bridge Obsidian | Export unidireccional | M | pendiente |
+| 6. Bridge Obsidian | Export unidireccional | M | ✅ hecho |
 
 ## Nota de alcance
 

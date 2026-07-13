@@ -1,5 +1,8 @@
 package com.saider.turmalin
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,8 +28,15 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     settings: AppSettings,
     onChange: (AppSettings) -> Unit,
+    // Bridge a Obsidian (v2 6): exportación unidireccional a la carpeta
+    // elegida; [exportStatus] refleja el avance/resultado.
+    exportStatus: String?,
+    onExportToObsidian: (Uri) -> Unit,
     onBack: () -> Unit,
 ) {
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri -> uri?.let(onExportToObsidian) }
     val colors = Theme.colors
     Column(
         modifier = Modifier
@@ -73,6 +83,31 @@ fun SettingsScreen(
                 onToggle = { onChange(settings.copy(stylusButtonEraser = it)) },
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            Spacer(modifier = Modifier.height(20.dp))
+            SettingsSection("Exportación")
+            BasicText(
+                text = "Exporta el vault completo a una carpeta como archivos " +
+                    "Markdown para Obsidian: un .md por nota con sus tags y " +
+                    "[[vínculos]], más el PDF de cada nota como referencia " +
+                    "visual. Es una copia única, no sincronización.",
+                style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppButton(
+                    label = "Exportar a Obsidian…",
+                    onClick = { exportLauncher.launch(null) },
+                    style = ButtonStyle.FILLED,
+                )
+                exportStatus?.let { status ->
+                    BasicText(
+                        text = status,
+                        style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
+            }
         }
     }
 }

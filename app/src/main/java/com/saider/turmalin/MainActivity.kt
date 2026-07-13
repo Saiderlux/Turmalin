@@ -10,8 +10,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // Pantallas: galería (inicio) y nota abierta, navegadas por estado — dos
 // pantallas no ameritan librería de navegación todavía.
@@ -58,6 +62,10 @@ class MainActivity : ComponentActivity() {
                 stylusEraserEnabled = appSettings.stylusButtonEraser
             }
 
+            // v2 6: estado del export a Obsidian, visible en la pantalla de ajustes.
+            var exportStatus by remember { mutableStateOf<String?>(null) }
+            val exportScope = rememberCoroutineScope()
+
             val current = openNote
             if (current == null && showSettings) {
                 SettingsScreen(
@@ -66,7 +74,26 @@ class MainActivity : ComponentActivity() {
                         appSettings = changed
                         repo.saveAppSettings(changed)
                     },
-                    onBack = { showSettings = false },
+                    exportStatus = exportStatus,
+                    onExportToObsidian = { treeUri ->
+                        exportStatus = "Exportando…"
+                        exportScope.launch(Dispatchers.IO) {
+                            val count = runCatching {
+                                ObsidianExporter(applicationContext).export(repo, treeUri)
+                            }.getOrElse { -1 }
+                            withContext(Dispatchers.Main) {
+                                exportStatus = if (count >= 0) {
+                                    "Exportadas $count notas"
+                                } else {
+                                    "Error al exportar"
+                                }
+                            }
+                        }
+                    },
+                    onBack = {
+                        exportStatus = null
+                        showSettings = false
+                    },
                 )
             } else if (current == null && showGraph) {
                 GraphScreen(
