@@ -134,6 +134,13 @@ class MainActivity : ComponentActivity() {
                     onOpenGraph = { showGraph = true },
                     onOpenTrash = { showTrash = true },
                     onOpenSettings = { showSettings = true },
+                    // v2 4.2: la vista elegida persiste con los ajustes.
+                    viewTable = appSettings.galleryTable,
+                    onToggleView = {
+                        val changed = appSettings.copy(galleryTable = !appSettings.galleryTable)
+                        appSettings = changed
+                        repo.saveAppSettings(changed)
+                    },
                     onDeleteNote = viewModel::deleteNote,
                     deleteUndo = deleteUndo,
                     onUndoDeleteNote = viewModel::undoDeleteNote,

@@ -12,8 +12,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Criterios de orden de la galería (RF-15). */
-enum class SortOrder { MODIFIED, TITLE, NOTEBOOK, TAGS }
+/** Criterios de orden de la galería (RF-15; LINKS solo aporta en la vista de
+ *  tabla, v2 4.2). */
+enum class SortOrder { MODIFIED, TITLE, NOTEBOOK, TAGS, LINKS }
 
 data class GalleryUiState(
     val notes: List<NoteMeta> = emptyList(),
@@ -29,7 +30,16 @@ data class GalleryUiState(
     val ocrTexts: Map<String, String> = emptyMap(),
     // Carátulas (RF-15): archivo thumb.webp por nota; puede no existir aún.
     val thumbFiles: Map<String, java.io.File> = emptyMap(),
+    // Grafo activo (v2 4.2): para las columnas de links de la vista de tabla.
+    val graph: Map<String, List<String>> = emptyMap(),
 )
+
+/** Links salientes/entrantes de una nota según el grafo activo (v2 4.2). */
+fun outgoingLinkCount(uuid: String, graph: Map<String, List<String>>): Int =
+    graph[uuid]?.size ?: 0
+
+fun incomingLinkCount(uuid: String, graph: Map<String, List<String>>): Int =
+    graph.count { uuid in it.value }
 
 /**
  * Aviso de título pendiente al cerrar una nota (RF-11), con título sugerido
@@ -73,6 +83,11 @@ fun galleryNotes(state: GalleryUiState): List<NoteMeta> {
             else state.openNotebookId in effectiveIds
         }
     }
+    return sortedNotes(visible, state)
+}
+
+/** Orden de la galería/tabla (RF-15, v2 4.2), aplicado a una lista ya filtrada. */
+fun sortedNotes(visible: List<NoteMeta>, state: GalleryUiState): List<NoteMeta> {
     val nameById = state.notebooks.associate { it.id to it.name }
     return when (state.sortOrder) {
         SortOrder.MODIFIED -> visible.sortedByDescending { it.modifiedAtMillis }
@@ -91,8 +106,27 @@ fun galleryNotes(state: GalleryUiState): List<NoteMeta> {
                 note.tags.map { it.lowercase() }.minOrNull()
             }.thenBy { it.title.lowercase() }
         )
+        // Más conectadas primero (v2 4.2); desempata por título.
+        SortOrder.LINKS -> visible.sortedWith(
+            compareByDescending<NoteMeta> { note ->
+                outgoingLinkCount(note.uuid, state.graph) +
+                    incomingLinkCount(note.uuid, state.graph)
+            }.thenBy { it.title.lowercase() }
+        )
     }
 }
+
+/**
+ * Notas de la vista de tabla (v2 4.2): con búsqueda activa o un cuaderno
+ * abierto filtra igual que la galería; en la raíz lista TODAS las notas — la
+ * tabla existe para auditar el vault completo, no replica el anidado visual.
+ */
+fun tableNotes(state: GalleryUiState): List<NoteMeta> =
+    if (state.query.isNotBlank() || state.openNotebookId != null) {
+        galleryNotes(state)
+    } else {
+        sortedNotes(state.notes, state)
+    }
 
 /**
  * Estado de la pantalla de inicio (RF-13/14/15). Las operaciones delegan al
@@ -162,6 +196,7 @@ class GalleryViewModel(
                 // cachear por mtime si el vault crece a cientos de notas.
                 ocrTexts = notes.associate { note -> note.uuid to repo.loadOcrText(note.uuid) },
                 thumbFiles = notes.associate { note -> note.uuid to repo.thumbnailFile(note.uuid) },
+                graph = repo.activeGraph(),
             )
         }
     }

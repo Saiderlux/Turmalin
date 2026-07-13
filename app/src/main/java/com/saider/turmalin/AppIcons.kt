@@ -60,6 +60,19 @@ object AppIcons {
             "3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
     )
 
+    // Vista de tabla / cuadrícula (material "view_list" y "grid_view", v2 4.2):
+    // el botón muestra la vista a la que se cambiaría.
+    val ViewList = icon(
+        "view-list",
+        "M4 14h4v-4H4v4zm0 5h4v-4H4v4zM4 9h4V5H4v4zm5 5h12v-4H9v4zm0 5h12v-4H9" +
+            "v4zM9 5v4h12V5H9z",
+    )
+    val GridView = icon(
+        "grid-view",
+        "M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8z" +
+            "m6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z",
+    )
+
     // Ajustes de la app (material "settings", v2 3.4).
     val Settings = icon(
         "settings",

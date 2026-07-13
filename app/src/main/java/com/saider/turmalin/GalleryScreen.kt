@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -83,6 +86,9 @@ fun GalleryScreen(
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
+    // Vista de tabla (v2 4.2): alterna con la cuadrícula y persiste en ajustes.
+    viewTable: Boolean,
+    onToggleView: () -> Unit,
     onDeleteNote: (NoteMeta) -> Unit,
     deleteUndo: NoteMeta?,
     onUndoDeleteNote: () -> Unit,
@@ -104,6 +110,8 @@ fun GalleryScreen(
             GalleryHeader(
                 openNotebook = openNotebook,
                 sortOrder = state.sortOrder,
+                viewTable = viewTable,
+                onToggleView = onToggleView,
                 onBack = { onOpenNotebook(null) },
                 onSetSortOrder = onSetSortOrder,
                 onNewNotebook = { dialog = GalleryDialog.NewNotebook },
@@ -117,7 +125,19 @@ fun GalleryScreen(
             // Con búsqueda activa los resultados son globales (UC-09): las
             // tarjetas de cuaderno se ocultan y solo se listan coincidencias.
             val showNotebooks = state.openNotebookId == null && state.query.isBlank()
-            if (notes.isEmpty() && (!showNotebooks || state.notebooks.isEmpty())) {
+            if (viewTable) {
+                // v2 4.2: tabla de auditoría — en la raíz lista TODAS las notas
+                // (el cuaderno es una columna); búsqueda y cuaderno abierto
+                // filtran igual que la cuadrícula.
+                NotesTable(
+                    notes = tableNotes(state),
+                    state = state,
+                    onSetSortOrder = onSetSortOrder,
+                    onOpen = onOpenNote,
+                    onLongPress = { note -> dialog = GalleryDialog.NoteActions(note) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (notes.isEmpty() && (!showNotebooks || state.notebooks.isEmpty())) {
                 EmptyGalleryMessage(
                     text = if (state.query.isBlank()) {
                         "Sin notas todavía — crea la primera"
@@ -317,6 +337,8 @@ private fun SearchField(query: String, onSetQuery: (String) -> Unit) {
 private fun GalleryHeader(
     openNotebook: Notebook?,
     sortOrder: SortOrder,
+    viewTable: Boolean,
+    onToggleView: () -> Unit,
     onBack: () -> Unit,
     onSetSortOrder: (SortOrder) -> Unit,
     onNewNotebook: () -> Unit,
@@ -347,6 +369,15 @@ private fun GalleryHeader(
                 .weight(1f)
                 .padding(horizontal = 4.dp),
         )
+        // v2 4.2: alternar cuadrícula/tabla; el icono muestra la vista destino.
+        Box(modifier = Modifier.padding(end = 8.dp)) {
+            AppIconButton(
+                icon = if (viewTable) AppIcons.GridView else AppIcons.ViewList,
+                label = if (viewTable) "Cuadrícula" else "Tabla",
+                selected = false,
+                onClick = onToggleView,
+            )
+        }
         SortMenu(sortOrder = sortOrder, onSetSortOrder = onSetSortOrder)
         if (openNotebook == null) {
             // RF-19: entrada a la vista de grafo desde la raíz de la galería.
@@ -386,7 +417,119 @@ private val sortLabels = mapOf(
     SortOrder.TITLE to "Título",
     SortOrder.NOTEBOOK to "Cuaderno",
     SortOrder.TAGS to "Tags",
+    SortOrder.LINKS to "Links",
 )
+
+/**
+ * Vista de tabla (v2 4.2): una fila por nota con columnas ordenables — tocar
+ * un encabezado ordena por esa columna (mismo [SortOrder] que la cuadrícula).
+ * Solo lectura sobre metadata ya en memoria; toque abre la nota, long-press
+ * abre el mismo menú de acciones de las tarjetas.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun NotesTable(
+    notes: List<NoteMeta>,
+    state: GalleryUiState,
+    onSetSortOrder: (SortOrder) -> Unit,
+    onOpen: (NoteMeta) -> Unit,
+    onLongPress: (NoteMeta) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Theme.colors
+    val nameById = state.notebooks.associate { it.id to it.name }
+    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.SHORT) }
+    Column(modifier = modifier.padding(horizontal = 20.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TableHeader("Título", 3f, SortOrder.TITLE, state.sortOrder, onSetSortOrder)
+            TableHeader("Cuaderno", 2f, SortOrder.NOTEBOOK, state.sortOrder, onSetSortOrder)
+            TableHeader("Tags", 2f, SortOrder.TAGS, state.sortOrder, onSetSortOrder)
+            TableHeader("Fecha", 1.6f, SortOrder.MODIFIED, state.sortOrder, onSetSortOrder)
+            TableHeader("Links", 1.2f, SortOrder.LINKS, state.sortOrder, onSetSortOrder)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(colors.outlineVariant),
+        )
+        LazyColumn {
+            lazyItems(notes, key = { it.uuid }) { note ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = { onOpen(note) },
+                            onLongClick = { onLongPress(note) },
+                        )
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TableCell(note.title, 3f, colors.textPrimary)
+                    TableCell(
+                        note.notebookIds.mapNotNull { nameById[it] }.joinToString(", "),
+                        2f,
+                        colors.textSecondary,
+                    )
+                    TableCell(
+                        note.tags.joinToString(" ") { "#$it" },
+                        2f,
+                        colors.textSecondary,
+                    )
+                    TableCell(
+                        dateFormat.format(Date(note.modifiedAtMillis)),
+                        1.6f,
+                        colors.textSecondary,
+                    )
+                    TableCell(
+                        "${outgoingLinkCount(note.uuid, state.graph)}→ " +
+                            "${incomingLinkCount(note.uuid, state.graph)}←",
+                        1.2f,
+                        colors.textSecondary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.TableHeader(
+    label: String,
+    weight: Float,
+    order: SortOrder,
+    current: SortOrder,
+    onSetSortOrder: (SortOrder) -> Unit,
+) {
+    val colors = Theme.colors
+    val active = order == current
+    BasicText(
+        text = if (active) "$label ▾" else label,
+        style = TextStyle(
+            color = if (active) colors.textPrimary else colors.textSecondary,
+            fontSize = AppType.body,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+        ),
+        modifier = Modifier
+            .weight(weight)
+            .clickable { onSetSortOrder(order) }
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    )
+}
+
+@Composable
+private fun RowScope.TableCell(text: String, weight: Float, color: androidx.compose.ui.graphics.Color) {
+    BasicText(
+        text = text.ifEmpty { "—" },
+        style = TextStyle(color = color, fontSize = AppType.body),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(weight).padding(horizontal = 2.dp),
+    )
+}
 
 /** Selector de orden (RF-15) con Popup de foundation — sin Material. */
 @Composable

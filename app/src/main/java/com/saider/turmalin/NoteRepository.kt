@@ -224,6 +224,8 @@ data class AppSettings(
     val gestureRedo: Boolean = true,
     // RF-05c: mantener el botón del S Pen activa la goma temporal.
     val stylusButtonEraser: Boolean = true,
+    // v2 4.2: la galería se muestra como tabla en vez de cuadrícula.
+    val galleryTable: Boolean = false,
 )
 
 /**
@@ -537,6 +539,7 @@ class NoteRepository(context: Context) {
                 gestureUndo = a.optBoolean("gestureUndo", d.gestureUndo),
                 gestureRedo = a.optBoolean("gestureRedo", d.gestureRedo),
                 stylusButtonEraser = a.optBoolean("stylusButtonEraser", d.stylusButtonEraser),
+                galleryTable = a.optBoolean("galleryTable", d.galleryTable),
             )
         }.getOrDefault(AppSettings())
     }
@@ -550,7 +553,8 @@ class NoteRepository(context: Context) {
             JSONObject()
                 .put("gestureUndo", s.gestureUndo)
                 .put("gestureRedo", s.gestureRedo)
-                .put("stylusButtonEraser", s.stylusButtonEraser),
+                .put("stylusButtonEraser", s.stylusButtonEraser)
+                .put("galleryTable", s.galleryTable),
         )
         settingsFile.writeText(json.toString())
     }
