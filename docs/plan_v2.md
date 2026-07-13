@@ -33,6 +33,7 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** pines de lápiz favorito al estilo Samsung Notes: el usuario guarda combinaciones concretas de herramienta (familia + color + grosor, incluido el marcatextos) y una fila de la barra permite cambiar entre ellas con un toque, sin reconfigurar. Complementario: guardar colores personalizados como presets propios (o paletas completas) que se suman a los 8 preestablecidos de RF-04.
 **Por qué:** pedido explícito del usuario; Samsung Notes y GoodNotes lo ofrecen y es el flujo real de quien alterna entre 2-3 plumas fijas mientras escribe (ej. negro fino para texto, rojo grueso para correcciones, amarillo para subrayar).
 **Complejidad:** M. Persistencia trivial (lista de pines en `settings.json`, mismo patrón que `templates.json` de 2.3); el trabajo real es de UI en `InkToolbar.kt`: fila de pines, gesto de guardar/quitar pin, y cómo convive con la fila de herramientas sin agrandar la barra (ver el fix del slider vertical — la barra ya está al límite de densidad).
+**Estado:** ✅ implementado (jul 2026) — pines como cuñas de color en la fila de herramientas ("+" guarda, toque activa, long-press quita). Colores sueltos quedaron cubiertos por los pines; paletas completas diferidas.
 
 ---
 
@@ -75,11 +76,13 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** gestos táctiles de atajo sobre el canvas, empezando por tap de dos dedos = deshacer (y su pareja natural: tap de tres dedos o doble tap de dos dedos = rehacer). Cada gesto debe poder activarse/desactivarse (ver 3.4).
 **Por qué:** pedido explícito del usuario; estándar en GoodNotes/Noteful — deshacer sin viajar a la barra mantiene la mano en posición de escritura.
 **Complejidad:** M. El riesgo no es la detección sino la convivencia con RF-09a/09b: el tap de dos dedos debe distinguirse del inicio de un pinch-to-zoom (umbral de movimiento/tiempo) y respetar el palm rejection existente. Vive en `TouchViewportGesture.kt`, que ya clasifica los gestos táctiles del canvas — extenderlo, no duplicarlo.
+**Estado:** ✅ implementado (jul 2026) — tap breve (<300ms) sin pinch comprometido ni palmas; 2 dedos deshace, 3 rehace; cada uno con toggle en 3.4. Cubierto por tests JVM del gesto.
 
 ### 3.4 Menú de ajustes de la app
 **Qué:** pantalla de configuración global (hoy no existe: solo hay ajustes de nota y del grafo) donde activar/desactivar comportamientos: gestos rápidos (3.3), atajo del botón del S Pen (RF-05c), umbral de sugerencia de dividir nota (RF-10, hoy solo editable a mano en `settings.json`), y los toggles que traigan features futuras.
 **Por qué:** pedido explícito del usuario; a medida que crecen los comportamientos opcionales hace falta un lugar único para gobernarlos — y `settings.json` ya existe como persistencia, solo carece de UI.
 **Complejidad:** M. Pantalla nueva de solo lectura/escritura sobre `settings.json` (mismo patrón read-modify-write de `GraphSettings`), accesible desde la galería. Sin modelo de datos nuevo; el costo es UI y el cableado de cada toggle hasta su feature.
+**Estado:** ✅ implementado (jul 2026) — engrane en la galería; toggles de los dos gestos y del atajo de goma del S Pen (RF-05c). El umbral de RF-10 se añadirá cuando esa sugerencia exista.
 
 ---
 
@@ -132,14 +135,14 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 | 1. Escritura | 1.1 Tipos de lápiz | M | ✅ hecho (pincel pospuesto) |
 | | 1.2 Marcatextos | M | ✅ hecho |
 | | 1.3 Grosor numérico | S | ✅ hecho |
-| | 1.4 Lápices pineados y paletas | M | pendiente |
+| | 1.4 Lápices pineados y paletas | M | ✅ hecho (paletas diferidas) |
 | 2. Papel/plantillas | 2.1 Puntos | S | ✅ hecho |
 | | 2.2 Tamaño numérico | S | ✅ ya existía en v1 |
 | | 2.3 Plantillas guardables | M | ✅ hecho |
 | 3. UX/UI | 3.1 Iconos | S | ✅ hecho |
 | | 3.2 Revisión UX/UI general | L (depende del resto) | pendiente |
-| | 3.3 Gestos rápidos configurables | M | pendiente |
-| | 3.4 Menú de ajustes de la app | M | pendiente |
+| | 3.3 Gestos rápidos configurables | M | ✅ hecho |
+| | 3.4 Menú de ajustes de la app | M | ✅ hecho |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
 | | 4.2 Vista de tabla | M | pendiente |
 | | 4.3 Repaso espaciado | L — recomendado diferir a v3 | pendiente |
