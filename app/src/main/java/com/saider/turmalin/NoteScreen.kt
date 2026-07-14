@@ -242,6 +242,8 @@ fun NoteScreen(
     var pendingCardFront by remember { mutableStateOf<List<IdStroke>?>(null) }
     // Tarjeta invalidada por la goma, ofrecida para deshacer (aviso RF-34).
     var cardUndo by remember { mutableStateOf<DeletedCard?>(null) }
+    // Tarjeta bajo long-press, pendiente de confirmar su borrado.
+    var confirmDeleteCard by remember { mutableStateOf<ReviewCard?>(null) }
 
     // Alta de una tarjeta (v2 4.3): vence de inmediato (cola de hoy).
     fun addCard(front: List<IdStroke>, back: List<IdStroke>) {
@@ -385,8 +387,12 @@ fun NoteScreen(
         if (target == currentPage || target !in 0 until pageCount) return
         repo.saveStrokes(meta.uuid, currentPage, strokes)
         persistAnnotations()
-        // Una captura de tarjeta a medias no cruza páginas (v2 4.3).
-        pendingCardFront = null
+        // Una captura de tarjeta a medias no cruza páginas — y JAMÁS se
+        // cancela en silencio (rediseño post-v2).
+        if (pendingCardFront != null) {
+            pendingCardFront = null
+            infoNotice = "Captura de tarjeta cancelada al cambiar de página"
+        }
         currentPage = target
         loadPageInto(target)
         repo.saveMeta(snapshotMeta())
@@ -576,8 +582,8 @@ fun NoteScreen(
                 // mismo componente estándar RF-34.
                 onSelectionNotice = { infoNotice = it },
                 // Tarjetas de repaso (v2 4.3): la acción «Tarjeta» de la
-                // selección abre el diálogo de tipo; con un frente pendiente,
-                // el siguiente lazo captura el reverso.
+                // selección abre el diálogo de tipo; con una pregunta
+                // pendiente, el siguiente lazo captura la respuesta.
                 onCreateCard = { selected -> cardSelection = selected },
                 cardBackCapture = pendingCardFront != null,
                 onCardBackSelected = { back ->
@@ -585,6 +591,22 @@ fun NoteScreen(
                     pendingCardFront = null
                     if (front != null) addCard(front, back)
                 },
+                // Marcas visibles de las tarjetas de la página (post-v2), con
+                // bboxes vivos — siguen a la tinta como los halos de link.
+                cardOverlays = cards.filter { it.page == currentPage }.mapNotNull { card ->
+                    val front = strokes.filter { it.id in card.frontStrokeIds }
+                    if (front.isEmpty()) return@mapNotNull null
+                    val back = strokes.filter { it.id in card.backStrokeIds }
+                    CardOverlay(
+                        cardId = card.id,
+                        frontBbox = strokesBoundingBox(front),
+                        backBbox = if (back.isEmpty()) null else strokesBoundingBox(back),
+                    )
+                },
+                onCardLongPress = { cardId ->
+                    confirmDeleteCard = cards.firstOrNull { it.id == cardId }
+                },
+                captureHighlightBbox = pendingCardFront?.let { strokesBoundingBox(it) },
                 onLinkTap = { targetUuid ->
                     onFollowLink(save(), inkChanged, targetUuid)
                 },
@@ -598,6 +620,35 @@ fun NoteScreen(
                 },
                 onStrokesErased = { removed -> onStrokesErased(removed) },
             )
+            // Banner FIJO de captura de respuesta (post-v2): a diferencia de un
+            // aviso RF-34, no se auto-descarta — el modo deja de ser invisible
+            // y siempre se puede cancelar. La pregunta marcada se resalta en el
+            // canvas mientras tanto (captureHighlightBbox).
+            if (pendingCardFront != null) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp)
+                        .background(colors.surface, RoundedCornerShape(16.dp))
+                        .border(1.dp, colors.accent, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicText(
+                        text = "Pregunta marcada ✓ — ahora rodea la RESPUESTA con el lazo",
+                        style = TextStyle(color = colors.textPrimary, fontSize = AppType.body),
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    AppButton(
+                        label = "Cancelar",
+                        onClick = {
+                            pendingCardFront = null
+                            infoNotice = "Captura de tarjeta cancelada"
+                        },
+                        style = ButtonStyle.TEXT,
+                    )
+                }
+            }
             // Heurística 10: gestos del canvas no descubribles, solo primer uso.
             FirstUseHint(
                 hintKey = "canvas_gestures",
@@ -741,28 +792,48 @@ fun NoteScreen(
       // RF-05b + RF-34: aviso no bloqueante para deshacer el borrado del link
       // (por goma o deliberado). "Deshacer" re-crea el link; si el borrado fue
       // por goma, restaura además los trazos completos (snapshot).
-      // v2 4.3: tipo de tarjeta — solo frente (se muestra y se califica) o
-      // frente + reverso (el reverso se rodea con un segundo lazo).
+      // Tipo de tarjeta (post-v2, lenguaje pregunta/respuesta): solo pregunta
+      // (se muestra y se califica el recuerdo) o pregunta + respuesta (la
+      // respuesta se rodea después, guiada por el banner fijo).
       cardSelection?.let { front ->
         Dialog(onDismissRequest = { cardSelection = null }) {
             DialogSurface {
                 DialogTitle("Tarjeta de repaso")
                 DialogOption(
-                    label = "Solo frente (se muestra y calificas tu recuerdo)",
+                    label = "Solo pregunta — se te mostrará y calificas tu recuerdo",
                     onClick = {
                         cardSelection = null
                         addCard(front, emptyList())
                     },
                 )
                 DialogOption(
-                    label = "Frente + reverso (rodea la respuesta después)",
+                    label = "Pregunta + respuesta — la respuesta queda oculta hasta revelarla",
                     onClick = {
                         cardSelection = null
                         pendingCardFront = front
-                        infoNotice = "Rodea la respuesta con «Selección» para completar la tarjeta"
                     },
                 )
                 DialogOption(label = "Cancelar", onClick = { cardSelection = null })
+            }
+        }
+      }
+
+      // Diálogo de borrado de tarjeta (long-press sobre su marca punteada).
+      confirmDeleteCard?.let { card ->
+        Dialog(onDismissRequest = { confirmDeleteCard = null }) {
+            DialogSurface {
+                DialogTitle("Tarjeta de repaso")
+                DialogOption(
+                    label = "Eliminar tarjeta (la tinta no se toca)",
+                    onClick = {
+                        cards.remove(card)
+                        repo.saveCards(meta.uuid, cards)
+                        confirmDeleteCard = null
+                        infoNotice = "Tarjeta eliminada"
+                    },
+                    danger = true,
+                )
+                DialogOption(label = "Cancelar", onClick = { confirmDeleteCard = null })
             }
         }
       }

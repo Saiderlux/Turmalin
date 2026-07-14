@@ -23,6 +23,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -118,6 +119,21 @@ fun linkTintStroke(inkStroke: Stroke): Stroke = Stroke(
     ),
     inkStroke.inputs,
 )
+
+/**
+ * Overlay de una tarjeta de repaso (v2 4.3, rediseño post-v2): bboxes vivos de
+ * la pregunta (y respuesta si existe) para dibujar su marca punteada en el
+ * canvas y para el hit-test del long-press de borrado. Derivado de los trazos
+ * vivos por el dueño, igual que [LinkOverlay].
+ */
+data class CardOverlay(
+    val cardId: Long,
+    val frontBbox: List<Float>,
+    val backBbox: List<Float>?,
+)
+
+// Margen (unidades de documento) del rectángulo de tarjeta sobre su tinta.
+private const val CARD_OVERLAY_PADDING = 14f
 
 /** Ray casting: ¿el punto (x, y) cae dentro del polígono plano [x0,y0,x1,y1,…]? */
 fun polygonContains(polygon: List<Float>, x: Float, y: Float): Boolean {
@@ -243,10 +259,17 @@ fun InkCanvasScreen(
     onSelectionNotice: (String) -> Unit = {},
     // Tarjetas de repaso (v2 4.3): acción «Tarjeta» sobre la selección activa.
     onCreateCard: (List<IdStroke>) -> Unit = {},
-    // Modo captura del reverso: el siguiente lazo de Selección se entrega por
-    // onCardBackSelected en vez de volverse selección editable.
+    // Modo captura de la respuesta: el siguiente lazo de Selección se entrega
+    // por onCardBackSelected en vez de volverse selección editable.
     cardBackCapture: Boolean = false,
     onCardBackSelected: (List<IdStroke>) -> Unit = {},
+    // Marcas de las tarjetas de la página (rediseño post-v2): rectángulo
+    // punteado sobre su tinta; long-press de dedo ofrece eliminarla.
+    cardOverlays: List<CardOverlay> = emptyList(),
+    onCardLongPress: (cardId: Long) -> Unit = {},
+    // Bbox de la pregunta ya marcada mientras se captura la respuesta:
+    // resaltada para que se vea qué quedó marcado.
+    captureHighlightBbox: List<Float>? = null,
     onLinkTap: (targetUuid: String) -> Unit = {},
     // Long-press de un dedo sobre la tinta de un link: menú contextual para
     // eliminar el vínculo deliberadamente (complementa RF-05a/b).
@@ -269,6 +292,8 @@ fun InkCanvasScreen(
     val currentOnSelectionNotice = rememberUpdatedState(onSelectionNotice)
     val currentCardBackCapture = rememberUpdatedState(cardBackCapture)
     val currentOnCardBackSelected = rememberUpdatedState(onCardBackSelected)
+    val currentCardOverlays = rememberUpdatedState(cardOverlays)
+    val currentOnCardLongPress = rememberUpdatedState(onCardLongPress)
     val currentOnLinkTap = rememberUpdatedState(onLinkTap)
     val currentOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
 
@@ -473,6 +498,45 @@ fun InkCanvasScreen(
                     }
                     native.restore()
                 }
+            }
+            // Marcas de tarjetas de repaso (rediseño post-v2): rectángulo
+            // punteado sobre la tinta de pregunta y respuesta — la tarjeta se
+            // VE en la nota y el long-press de dedo permite eliminarla. La
+            // pregunta en captura se rellena además con un velo verde.
+            run {
+                val px = 1f / viewport.scale
+                fun drawCardBox(box: List<Float>, filled: Boolean) {
+                    if (box.size < 4) return
+                    val pad = CARD_OVERLAY_PADDING
+                    val topLeft = Offset(box[0] - pad, box[1] - pad)
+                    val size = Size(
+                        box[2] - box[0] + 2 * pad,
+                        box[3] - box[1] + 2 * pad,
+                    )
+                    if (filled) {
+                        drawRoundRect(
+                            color = SELECT_UI_COLOR.copy(alpha = 0.15f),
+                            topLeft = topLeft,
+                            size = size,
+                            cornerRadius = CornerRadius(10f, 10f),
+                        )
+                    }
+                    drawRoundRect(
+                        color = SELECT_UI_COLOR.copy(alpha = 0.55f),
+                        topLeft = topLeft,
+                        size = size,
+                        cornerRadius = CornerRadius(10f, 10f),
+                        style = DrawStroke(
+                            width = 2.5f * px,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
+                        ),
+                    )
+                }
+                for (overlay in cardOverlays) {
+                    drawCardBox(overlay.frontBbox, filled = false)
+                    overlay.backBbox?.let { drawCardBox(it, filled = false) }
+                }
+                captureHighlightBbox?.let { drawCardBox(it, filled = true) }
             }
             // Lazo en curso: contorno punteado, grosor constante en pantalla.
             // Verde si lo traza Selección, azul si es el Lazo de vínculo.
@@ -909,16 +973,37 @@ fun InkCanvasScreen(
                     }
                 }
 
+                // Tarjeta bajo un punto de pantalla (por bbox con margen), para
+                // el long-press de borrado. El link gana si ambos coinciden.
+                fun cardAt(screenX: Float, screenY: Float): CardOverlay? {
+                    val x = viewport.screenToDocumentX(screenX)
+                    val y = viewport.screenToDocumentY(screenY)
+                    val pad = CARD_OVERLAY_PADDING
+                    return currentCardOverlays.value.firstOrNull { overlay ->
+                        listOfNotNull(overlay.frontBbox, overlay.backBbox).any { b ->
+                            b.size >= 4 &&
+                                x >= b[0] - pad && x <= b[2] + pad &&
+                                y >= b[1] - pad && y <= b[3] + pad
+                        }
+                    }
+                }
+
                 val touchGesture = TouchViewportGesture(
                     viewport = viewport,
                     onPaginate = { direction -> currentOnSwipePage.value(direction) },
                     // Tap sobre un link: navegar al destino. Long-press: menú
-                    // contextual para eliminar el vínculo.
+                    // contextual para eliminar el vínculo (o la tarjeta, si el
+                    // punto no toca tinta linkeada).
                     onTap = { x, y ->
                         linkAt(x, y)?.let { currentOnLinkTap.value(it.targetUuid) }
                     },
                     onLongPress = { x, y ->
-                        linkAt(x, y)?.let { currentOnLinkLongPress.value(it.targetUuid) }
+                        val link = linkAt(x, y)
+                        if (link != null) {
+                            currentOnLinkLongPress.value(link.targetUuid)
+                        } else {
+                            cardAt(x, y)?.let { currentOnCardLongPress.value(it.cardId) }
+                        }
                     },
                     onMultiFingerTap = { fingers ->
                         currentOnMultiFingerTap.value(fingers)
