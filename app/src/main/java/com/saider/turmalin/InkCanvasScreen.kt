@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -51,6 +52,7 @@ import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
 import androidx.input.motionprediction.MotionEventPredictor
+import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -76,6 +78,15 @@ private const val LINK_OVERLAY_MARGIN = 10f
 
 // Contorno del lazo mientras se dibuja (mismo color base, opaco).
 private val LASSO_STROKE_COLOR = Color(0xFF3D5AFE)
+
+// Asas de la selección (v2 sección 5), en px de pantalla — se dividen por la
+// escala del viewport para medir lo mismo bajo el pen a cualquier zoom.
+private const val SELECT_HANDLE_HIT_PX = 24f
+private const val SELECT_ROTATE_OFFSET_PX = 48f
+private const val SELECT_HANDLE_DRAW_PX = 12f
+
+// Gesto en curso sobre la selección: arrastre interior, asa de esquina o de rotar.
+private enum class SelectMode { MOVE, SCALE, ROTATE }
 
 /**
  * Overlay de un link (RF-23a): los trazos linkeados YA re-teñidos con el pincel
@@ -222,6 +233,9 @@ fun InkCanvasScreen(
     // Lazo (RF-17): entrega el polígono cerrado (coordenadas de documento,
     // lista plana x,y) al levantar el S Pen con la herramienta activa.
     onLassoComplete: (List<Float>) -> Unit = {},
+    // Avisos de la herramienta Selección (v2 sección 5), p. ej. lazo vacío —
+    // el dueño los muestra con el componente estándar RF-34.
+    onSelectionNotice: (String) -> Unit = {},
     onLinkTap: (targetUuid: String) -> Unit = {},
     // Long-press de un dedo sobre la tinta de un link: menú contextual para
     // eliminar el vínculo deliberadamente (complementa RF-05a/b).
@@ -241,6 +255,7 @@ fun InkCanvasScreen(
     val currentOnSwipePage = rememberUpdatedState(onSwipePage)
     val currentLinkOverlays = rememberUpdatedState(linkOverlays)
     val currentOnLassoComplete = rememberUpdatedState(onLassoComplete)
+    val currentOnSelectionNotice = rememberUpdatedState(onSelectionNotice)
     val currentOnLinkTap = rememberUpdatedState(onLinkTap)
     val currentOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
 
@@ -272,6 +287,14 @@ fun InkCanvasScreen(
 
     // Polilínea del lazo en curso (coordenadas de documento, plana x,y).
     val lassoPoints = remember { mutableStateListOf<Float>() }
+
+    // Selección del lasso de edición (v2 sección 5). Se guardan IDs, no trazos:
+    // derivar la selección de la lista viva la hace robusta a cambios de página
+    // y borrados (IDs ausentes simplemente no seleccionan nada). La
+    // transformación es solo preview del gesto en curso; se materializa al
+    // soltar el pen (commit) reconstruyendo los trazos.
+    val selectedIds = remember { mutableStateOf<Set<Long>>(emptySet()) }
+    val selectionTransform = remember { mutableStateOf<SelectionTransform?>(null) }
 
     // Identidad: la capa dry dibuja en coordenadas de documento y el
     // graphicsLayer del viewport aplica documento→pantalla por encima, así que
@@ -404,12 +427,38 @@ fun InkCanvasScreen(
                         )
                     }
                 }
+                // Con un gesto de selección en curso (v2 sección 5), los trazos
+                // seleccionados se dibujan aparte bajo la transformación de
+                // preview del canvas — nada se reconstruye por frame.
+                val transform = selectionTransform.value
+                val selIds = selectedIds.value
                 for (item in strokes) {
+                    if (transform != null && item.id in selIds) continue
                     strokeRenderer.draw(
                         canvas = canvas.nativeCanvas,
                         stroke = item.stroke,
                         strokeToScreenTransform = identityTransform,
                     )
+                }
+                if (transform != null && selIds.isNotEmpty()) {
+                    val native = canvas.nativeCanvas
+                    native.save()
+                    // Composición T(pivote+d)·R·S·T(−pivote): la misma afín de
+                    // transformPoint, aplicada al canvas para la preview.
+                    native.translate(transform.pivotX + transform.dx, transform.pivotY + transform.dy)
+                    native.rotate(Math.toDegrees(transform.rotation.toDouble()).toFloat())
+                    native.scale(transform.scale, transform.scale)
+                    native.translate(-transform.pivotX, -transform.pivotY)
+                    for (item in strokes) {
+                        if (item.id in selIds) {
+                            strokeRenderer.draw(
+                                canvas = native,
+                                stroke = item.stroke,
+                                strokeToScreenTransform = identityTransform,
+                            )
+                        }
+                    }
+                    native.restore()
                 }
             }
             // Lazo en curso: contorno punteado, grosor constante en pantalla.
@@ -422,6 +471,52 @@ fun InkCanvasScreen(
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
                     ),
                 )
+            }
+            // Recuadro y asas de la selección (v2 sección 5): rectángulo punteado,
+            // 4 esquinas de escala y el asa circular de rotación, todos con tamaño
+            // constante en pantalla.
+            val selIdsUi = selectedIds.value
+            if (selIdsUi.isNotEmpty()) {
+                val selected = strokes.filter { it.id in selIdsUi }
+                if (selected.isNotEmpty()) {
+                    val base = strokesBoundingBox(selected)
+                    val box = selectionTransform.value?.let { transformBbox(it, base) } ?: base
+                    val px = 1f / viewport.scale
+                    drawRect(
+                        color = LASSO_STROKE_COLOR,
+                        topLeft = Offset(box[0], box[1]),
+                        size = Size(box[2] - box[0], box[3] - box[1]),
+                        style = DrawStroke(
+                            width = 3f * px,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
+                        ),
+                    )
+                    val handle = SELECT_HANDLE_DRAW_PX * px
+                    val corners = listOf(
+                        Offset(box[0], box[1]), Offset(box[2], box[1]),
+                        Offset(box[0], box[3]), Offset(box[2], box[3]),
+                    )
+                    for (corner in corners) {
+                        drawRect(
+                            color = LASSO_STROKE_COLOR,
+                            topLeft = Offset(corner.x - handle / 2f, corner.y - handle / 2f),
+                            size = Size(handle, handle),
+                        )
+                    }
+                    val cx = (box[0] + box[2]) / 2f
+                    val rotY = box[1] - SELECT_ROTATE_OFFSET_PX * px
+                    drawLine(
+                        color = LASSO_STROKE_COLOR,
+                        start = Offset(cx, box[1]),
+                        end = Offset(cx, rotY),
+                        strokeWidth = 2f * px,
+                    )
+                    drawCircle(
+                        color = LASSO_STROKE_COLOR,
+                        radius = handle * 0.7f,
+                        center = Offset(cx, rotY),
+                    )
+                }
             }
         }
       }
@@ -463,6 +558,19 @@ fun InkCanvasScreen(
                 val predictor = MotionEventPredictor.newInstance(strokesView)
                 var currentPointerId = MotionEvent.INVALID_POINTER_ID
                 var currentStrokeId: InProgressStrokeId? = null
+
+                // Gesto de manipulación de la selección (v2 sección 5), vivo
+                // solo entre pen down y pen up.
+                var selectMode: SelectMode? = null
+                var selectStartX = 0f
+                var selectStartY = 0f
+                var selectPivotX = 0f
+                var selectPivotY = 0f
+                var selectBaseDist = 1f
+                var selectBaseAngle = 0f
+                // ¿El lazo en curso pertenece a Selección (y no al Lazo de
+                // vínculo)? Se decide en el DOWN y gobierna el UP.
+                var lassoForSelect = false
 
                 // Velocidad del evento anterior, para la compuerta de predicción
                 // (ver rama ACTION_MOVE de la pluma).
@@ -633,7 +741,7 @@ fun InkCanvasScreen(
                     val changed = when (tool) {
                         Tool.ERASER_STROKE -> eraseStrokeAt(x, y, halfSize)
                         Tool.ERASER_PARTIAL -> erasePartialAt(x, y, halfSize)
-                        Tool.PEN, Tool.HIGHLIGHTER, Tool.LASSO -> false
+                        Tool.PEN, Tool.HIGHLIGHTER, Tool.LASSO, Tool.SELECT -> false
                     }
                     if (changed && before != null) eraseGestureBefore = before
                 }
@@ -650,6 +758,106 @@ fun InkCanvasScreen(
                 fun addLassoPoint(screenX: Float, screenY: Float) {
                     lassoPoints.add(viewport.screenToDocumentX(screenX))
                     lassoPoints.add(viewport.screenToDocumentY(screenY))
+                }
+
+                // ── Selección (v2 sección 5) ──
+
+                // Bbox vivo de la selección, o null si no hay trazos vivos.
+                fun selectionBbox(): List<Float>? {
+                    val ids = selectedIds.value
+                    if (ids.isEmpty()) return null
+                    val selected = strokes.filter { it.id in ids }
+                    if (selected.isEmpty()) return null
+                    return strokesBoundingBox(selected)
+                }
+
+                // Clasifica el pen down (en documento) sobre la selección activa:
+                // asa de rotar, esquina de escala, interior (mover) o fuera
+                // (deseleccionar). Devuelve true si arrancó un gesto.
+                fun startSelectGesture(x: Float, y: Float): Boolean {
+                    val box = selectionBbox() ?: return false
+                    val slop = SELECT_HANDLE_HIT_PX / viewport.scale
+                    val cx = (box[0] + box[2]) / 2f
+                    val cy = (box[1] + box[3]) / 2f
+                    val rotY = box[1] - SELECT_ROTATE_OFFSET_PX / viewport.scale
+                    val onCorner = listOf(
+                        box[0] to box[1], box[2] to box[1],
+                        box[0] to box[3], box[2] to box[3],
+                    ).any { (hx, hy) -> hypot(x - hx, y - hy) <= slop }
+                    val mode = when {
+                        hypot(x - cx, y - rotY) <= slop -> SelectMode.ROTATE
+                        onCorner -> SelectMode.SCALE
+                        x >= box[0] - slop && x <= box[2] + slop &&
+                            y >= box[1] - slop && y <= box[3] + slop -> SelectMode.MOVE
+                        else -> null
+                    }
+                    if (mode == null) {
+                        // Fuera del recuadro: se deselecciona y el mismo gesto
+                        // empieza un lazo nuevo (lo maneja el llamador).
+                        selectedIds.value = emptySet()
+                        return false
+                    }
+                    selectMode = mode
+                    selectStartX = x
+                    selectStartY = y
+                    selectPivotX = cx
+                    selectPivotY = cy
+                    selectBaseDist = hypot(x - cx, y - cy).coerceAtLeast(1e-3f)
+                    selectBaseAngle = atan2(y - cy, x - cx)
+                    return true
+                }
+
+                // Actualiza la preview del gesto; solo estado, nada se reconstruye.
+                fun updateSelectGesture(x: Float, y: Float) {
+                    val mode = selectMode ?: return
+                    selectionTransform.value = when (mode) {
+                        SelectMode.MOVE -> SelectionTransform(
+                            dx = x - selectStartX,
+                            dy = y - selectStartY,
+                            pivotX = selectPivotX,
+                            pivotY = selectPivotY,
+                        )
+                        SelectMode.SCALE -> SelectionTransform(
+                            scale = (hypot(x - selectPivotX, y - selectPivotY) / selectBaseDist)
+                                .coerceIn(0.05f, 20f),
+                            pivotX = selectPivotX,
+                            pivotY = selectPivotY,
+                        )
+                        SelectMode.ROTATE -> SelectionTransform(
+                            rotation = atan2(y - selectPivotY, x - selectPivotX) - selectBaseAngle,
+                            pivotX = selectPivotX,
+                            pivotY = selectPivotY,
+                        )
+                    }
+                }
+
+                // Pen up: materializa la transformación reconstruyendo los trazos
+                // seleccionados (mismo ID → links y tarjetas siguen vivos). Un
+                // gesto completo = un paso de deshacer, igual que la goma.
+                fun commitSelectGesture() {
+                    if (selectMode == null) return
+                    selectMode = null
+                    val t = selectionTransform.value
+                    selectionTransform.value = null
+                    if (t == null ||
+                        (t.dx == 0f && t.dy == 0f && t.scale == 1f && t.rotation == 0f)
+                    ) {
+                        return
+                    }
+                    val ids = selectedIds.value
+                    val before = strokes.toList()
+                    var changed = false
+                    for (i in strokes.indices) {
+                        val item = strokes[i]
+                        if (item.id in ids) {
+                            strokes[i] = transformStroke(item, t)
+                            changed = true
+                        }
+                    }
+                    if (changed) {
+                        history.commit(before)
+                        currentOnInkModified.value()
+                    }
                 }
 
                 // ── Gestos táctiles de viewport (RF-09a/09b) ──
@@ -856,8 +1064,21 @@ fun InkCanvasScreen(
                                     // Lazo (RF-17): el pen no produce tinta,
                                     // solo acumula el polígono de selección.
                                     Tool.LASSO -> {
+                                        lassoForSelect = false
                                         lassoPoints.clear()
                                         addLassoPoint(event.x, event.y)
+                                    }
+                                    // Selección (v2 sección 5): sobre el recuadro
+                                    // arranca un gesto de mover/escalar/rotar;
+                                    // fuera (o sin selección), un lazo nuevo.
+                                    Tool.SELECT -> {
+                                        val docX = viewport.screenToDocumentX(event.x)
+                                        val docY = viewport.screenToDocumentY(event.y)
+                                        if (!startSelectGesture(docX, docY)) {
+                                            lassoForSelect = true
+                                            lassoPoints.clear()
+                                            addLassoPoint(event.x, event.y)
+                                        }
                                     }
                                     else -> eraseAt(effectiveTool, event.x, event.y)
                                 }
@@ -905,7 +1126,14 @@ fun InkCanvasScreen(
                                         strokeId,
                                         prediction,
                                     )
-                                } else if (effectiveTool == Tool.LASSO) {
+                                } else if (effectiveTool == Tool.SELECT && selectMode != null) {
+                                    // Gesto sobre la selección: solo actualiza la
+                                    // preview de la transformación.
+                                    updateSelectGesture(
+                                        viewport.screenToDocumentX(event.x),
+                                        viewport.screenToDocumentY(event.y),
+                                    )
+                                } else if (effectiveTool == Tool.LASSO || effectiveTool == Tool.SELECT) {
                                     // Botón de goma soltado a mitad de lazo: se
                                     // sigue acumulando el polígono; cualquier
                                     // tinta en curso se cancela.
@@ -947,10 +1175,27 @@ fun InkCanvasScreen(
                                 currentStrokeId = null
                                 // Pen up con lazo: se cierra el polígono y se
                                 // entrega (mínimo 3 vértices para tener área).
+                                // El lazo de Selección se resuelve aquí mismo;
+                                // el de vínculo se entrega al dueño (RF-17).
                                 if (lassoPoints.size >= 6) {
-                                    currentOnLassoComplete.value(lassoPoints.toList())
+                                    if (lassoForSelect) {
+                                        val selected =
+                                            strokesInLasso(strokes, lassoPoints.toList())
+                                        if (selected.isEmpty()) {
+                                            currentOnSelectionNotice.value(
+                                                "El lazo quedó vacío — rodea por " +
+                                                    "completo los trazos a editar"
+                                            )
+                                        } else {
+                                            selectedIds.value =
+                                                selected.mapTo(HashSet()) { it.id }
+                                        }
+                                    } else {
+                                        currentOnLassoComplete.value(lassoPoints.toList())
+                                    }
                                 }
                                 lassoPoints.clear()
+                                commitSelectGesture()
                                 commitEraseGesture()
                                 temporaryEraserTool.value = null
                                 stylusIsDown.value = false
@@ -960,6 +1205,10 @@ fun InkCanvasScreen(
                                 currentStrokeId?.let { strokesView.cancelStroke(it, event) }
                                 currentStrokeId = null
                                 lassoPoints.clear()
+                                // El gesto de selección cancelado descarta la
+                                // preview sin materializar nada.
+                                selectMode = null
+                                selectionTransform.value = null
                                 // Los borrados ya aplicados no se revierten por el
                                 // cancel: el paso del historial se cierra igual.
                                 commitEraseGesture()
@@ -1069,6 +1318,11 @@ fun InkCanvasScreen(
                 // El atajo del botón del S Pen solo recuerda gomas (RF-05c).
                 if (tool == Tool.ERASER_STROKE || tool == Tool.ERASER_PARTIAL) {
                     lastEraserTool.value = tool
+                }
+                // Salir de Selección abandona la selección (v2 sección 5).
+                if (tool != Tool.SELECT) {
+                    selectedIds.value = emptySet()
+                    selectionTransform.value = null
                 }
             },
             pins = pins,

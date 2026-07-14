@@ -174,6 +174,12 @@ fun InkToolbar(
             onClick = { onToolSelect(Tool.LASSO) },
         )
         AppIconButton(
+            icon = AppIcons.Select,
+            label = "Selección",
+            selected = highlightedTool == Tool.SELECT,
+            onClick = { onToolSelect(Tool.SELECT) },
+        )
+        AppIconButton(
             icon = AppIcons.Undo,
             label = "Deshacer",
             selected = false,

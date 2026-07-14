@@ -60,6 +60,14 @@ object AppIcons {
             "3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
     )
 
+    // Selección (v2 sección 5): recuadro punteado (marching ants) con cursor —
+    // dibujado a mano para que sea inconfundible frente al Lazo de vínculo.
+    val Select = icon(
+        "select",
+        "M3 3h3v2H3zM8 3h3v2H8zM13 3h3v2h-3zM18 3h3v2h-3zM3 8h2v3H3zM19 8h2v3" +
+            "h-2zM3 13h2v3H3zM3 18h3v2H3zM8 19h3v2H8zM13 13l8 3.5-3.5 1-1 3.5z",
+    )
+
     // Vista de tabla / cuadrícula (material "view_list" y "grid_view", v2 4.2):
     // el botón muestra la vista a la que se cambiaría.
     val ViewList = icon(

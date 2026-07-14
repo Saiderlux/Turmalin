@@ -504,6 +504,9 @@ fun NoteScreen(
                         else -> pendingSelection = selected
                     }
                 },
+                // Avisos de la herramienta Selección (v2 sección 5), con el
+                // mismo componente estándar RF-34.
+                onSelectionNotice = { infoNotice = it },
                 onLinkTap = { targetUuid ->
                     onFollowLink(save(), inkChanged, targetUuid)
                 },
@@ -522,7 +525,7 @@ fun NoteScreen(
                 hintKey = "canvas_gestures",
                 text = "El S Pen escribe · un dedo mueve la página, dos hacen zoom · " +
                     "el botón del S Pen borra · «Lazo de vínculo» conecta con otra nota · " +
-                    "mantén presionado un vínculo para eliminarlo",
+                    "«Selección» mueve trazos · mantén presionado un vínculo para eliminarlo",
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(12.dp),
