@@ -39,8 +39,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -366,6 +369,13 @@ private fun GalleryHeader(
     ) {
         if (openNotebook != null) {
             BackArrow(onClick = onBack)
+        } else {
+            // Marca (v2 3.2): el cristal del logo junto al nombre, solo en la raíz.
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+            )
         }
         BasicText(
             text = openNotebook?.name ?: "Turmalin",
@@ -391,33 +401,50 @@ private fun GalleryHeader(
         }
         SortMenu(sortOrder = sortOrder, onSetSortOrder = onSetSortOrder)
         if (openNotebook == null) {
-            // v2 4.3: cola de repaso, visible solo con tarjetas en el vault;
-            // el contador es la cantidad vencida hoy.
+            // Jerarquía del header (v2 3.2): solo lo urgente se llena de color
+            // (Repaso con vencidas); navegación secundaria como iconos; crear
+            // cuaderno conserva texto por ser acción de escritura.
             if (reviewTotal > 0) {
-                AppButton(
-                    label = if (reviewDue > 0) "Repaso ($reviewDue)" else "Repaso",
-                    onClick = onOpenReview,
-                    style = if (reviewDue > 0) ButtonStyle.FILLED else ButtonStyle.OUTLINE,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                if (reviewDue > 0) {
+                    // v2 4.3: tarjetas vencidas hoy — única acción llena del header.
+                    AppButton(
+                        label = "Repaso ($reviewDue)",
+                        onClick = onOpenReview,
+                        style = ButtonStyle.FILLED,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                } else {
+                    Box(modifier = Modifier.padding(start = 8.dp)) {
+                        AppIconButton(
+                            icon = AppIcons.Review,
+                            label = "Repaso",
+                            selected = false,
+                            onClick = onOpenReview,
+                        )
+                    }
+                }
             }
             // RF-19: entrada a la vista de grafo desde la raíz de la galería.
-            AppButton(
-                label = "Grafo",
-                onClick = onOpenGraph,
-                style = ButtonStyle.FILLED,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            Box(modifier = Modifier.padding(start = 8.dp)) {
+                AppIconButton(
+                    icon = AppIcons.Graph,
+                    label = "Grafo",
+                    selected = false,
+                    onClick = onOpenGraph,
+                )
+            }
             // RF-36: entrada a la papelera (UC-14), solo visible en la raíz.
-            AppButton(
-                label = "Papelera",
-                onClick = onOpenTrash,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            Box(modifier = Modifier.padding(start = 8.dp)) {
+                AppIconButton(
+                    icon = AppIcons.Trash,
+                    label = "Papelera",
+                    selected = false,
+                    onClick = onOpenTrash,
+                )
+            }
             AppButton(
                 label = "+ Cuaderno",
                 onClick = onNewNotebook,
-                style = ButtonStyle.FILLED,
                 modifier = Modifier.padding(start = 8.dp),
             )
             // v2 3.4: ajustes globales de la app.
@@ -643,9 +670,8 @@ private fun NoteCard(
     onLongPress: () -> Unit,
 ) {
     val colors = Theme.colors
-    val dateFormat = remember {
-        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-    }
+    // Fecha corta sin hora (v2 3.2): la hora no cambia decisiones en la galería.
+    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.SHORT) }
     val shape = RoundedCornerShape(12.dp)
     // Carátula cacheada (RF-15): el mtime del archivo es la clave — solo se
     // redecodifica cuando la carátula se regeneró (contenido real cambiado).
@@ -663,6 +689,8 @@ private fun NoteCard(
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .padding(16.dp),
     ) {
+        // Área de carátula SIEMPRE reservada (v2 3.2): cuadrícula uniforme —
+        // una nota sin tinta muestra un placeholder tenue en vez de encoger.
         if (thumbnail != null) {
             Image(
                 bitmap = thumbnail,
@@ -675,14 +703,32 @@ private fun NoteCard(
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)),
             )
-            Spacer(modifier = Modifier.height(10.dp))
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .background(colors.surfaceVariant, RoundedCornerShape(8.dp))
+                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = rememberVectorPainter(AppIcons.Pen),
+                    contentDescription = null,
+                    colorFilter = ColorFilter.tint(colors.disabled),
+                    modifier = Modifier.size(28.dp),
+                )
+            }
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        // «Sin título» en hint (v2 3.2): las notas tituladas dominan la vista.
+        val untitled = note.title == DEFAULT_NOTE_TITLE
         BasicText(
             text = note.title,
             style = TextStyle(
-                color = colors.textPrimary,
+                color = if (untitled) colors.textHint else colors.textPrimary,
                 fontSize = AppType.label,
-                fontWeight = FontWeight.Medium,
+                fontWeight = if (untitled) FontWeight.Normal else FontWeight.Medium,
             ),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

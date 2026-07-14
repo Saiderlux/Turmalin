@@ -4,6 +4,7 @@
     <!-- Fase 0: sin permisos. La app no toca red ni almacenamiento externo. -->
     <application
         android:label="Turmalin"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 

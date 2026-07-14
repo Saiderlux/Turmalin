@@ -76,8 +76,13 @@ val LINK_OVERLAY_COLOR = Color(0x553D5AFE)
 // grueso que el halo lo tapaba por completo.
 private const val LINK_OVERLAY_MARGIN = 10f
 
-// Contorno del lazo mientras se dibuja (mismo color base, opaco).
+// Contorno del lazo de vínculo mientras se dibuja (a juego con su halo azul).
 private val LASSO_STROKE_COLOR = Color(0xFF3D5AFE)
+
+// UI de la herramienta Selección (v2 3.2): verde de marca — vínculo=azul,
+// selección=verde, los dos lazos se distinguen también por color. Constante y
+// no token del tema: vive en overlays del canvas y en closures del listener.
+private val SELECT_UI_COLOR = Color(0xFF20A374)
 
 // Asas de la selección (v2 sección 5), en px de pantalla — se dividen por la
 // escala del viewport para medir lo mismo bajo el pen a cualquier zoom.
@@ -470,10 +475,15 @@ fun InkCanvasScreen(
                 }
             }
             // Lazo en curso: contorno punteado, grosor constante en pantalla.
+            // Verde si lo traza Selección, azul si es el Lazo de vínculo.
             if (lassoPoints.size >= 4) {
                 drawPath(
                     polygonToPath(lassoPoints.toList()),
-                    color = LASSO_STROKE_COLOR,
+                    color = if (selectedTool.value == Tool.SELECT) {
+                        SELECT_UI_COLOR
+                    } else {
+                        LASSO_STROKE_COLOR
+                    },
                     style = DrawStroke(
                         width = 3f / viewport.scale,
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
@@ -491,7 +501,7 @@ fun InkCanvasScreen(
                     val box = selectionTransform.value?.let { transformBbox(it, base) } ?: base
                     val px = 1f / viewport.scale
                     drawRect(
-                        color = LASSO_STROKE_COLOR,
+                        color = SELECT_UI_COLOR,
                         topLeft = Offset(box[0], box[1]),
                         size = Size(box[2] - box[0], box[3] - box[1]),
                         style = DrawStroke(
@@ -506,7 +516,7 @@ fun InkCanvasScreen(
                     )
                     for (corner in corners) {
                         drawRect(
-                            color = LASSO_STROKE_COLOR,
+                            color = SELECT_UI_COLOR,
                             topLeft = Offset(corner.x - handle / 2f, corner.y - handle / 2f),
                             size = Size(handle, handle),
                         )
@@ -514,13 +524,13 @@ fun InkCanvasScreen(
                     val cx = (box[0] + box[2]) / 2f
                     val rotY = box[1] - SELECT_ROTATE_OFFSET_PX * px
                     drawLine(
-                        color = LASSO_STROKE_COLOR,
+                        color = SELECT_UI_COLOR,
                         start = Offset(cx, box[1]),
                         end = Offset(cx, rotY),
                         strokeWidth = 2f * px,
                     )
                     drawCircle(
-                        color = LASSO_STROKE_COLOR,
+                        color = SELECT_UI_COLOR,
                         radius = handle * 0.7f,
                         center = Offset(cx, rotY),
                     )
@@ -1395,7 +1405,7 @@ fun InkCanvasScreen(
                 else penSize.value = it
             },
             onOpenColorPicker = { showColorPicker = true },
-            vertical = dockEdge.isVertical,
+            dockEdge = dockEdge,
             onDrag = { delta -> toolbarDragOffset += delta },
             onDragEnd = {
                 if (canvasSize.width > 0) {
@@ -1405,9 +1415,9 @@ fun InkCanvasScreen(
                 }
                 toolbarDragOffset = Offset.Zero
             },
+            // Al ras del borde acoplado (v2 3.2): sin margen flotante.
             modifier = Modifier
                 .align(dockAlignment)
-                .padding(12.dp)
                 .offset {
                     IntOffset(
                         toolbarDragOffset.x.roundToInt(),

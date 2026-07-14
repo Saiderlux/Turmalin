@@ -470,13 +470,15 @@ fun NoteScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
       Column(modifier = Modifier.fillMaxSize()) {
+        // Barra superior compacta (v2 3.2): cede altura al canvas — flecha y
+        // paddings reducidos, contador de vínculos como pill discreto.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BackArrow(onClick = { onClose(save(), inkChanged) })
+            BackArrow(onClick = { onClose(save(), inkChanged) }, compact = true)
             BasicTextField(
                 value = titleField,
                 onValueChange = { titleField = it },
@@ -506,15 +508,21 @@ fun NoteScreen(
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(focusRequester)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
             )
             // RF-23b: contador de referencias de la nota, con label en vez del
             // símbolo ⇄ (heurística 2); se abre por toque (no swipe) para no
-            // comprometer el palm rejection.
-            AppButton(
-                label = "Vínculos: ${connections.size}",
-                onClick = { showBacklinks = true },
-                modifier = Modifier.padding(end = 8.dp),
+            // comprometer el palm rejection. Pill discreto (v2 3.2): informa
+            // más de lo que compite con el canvas.
+            BasicText(
+                text = "Vínculos: ${connections.size}",
+                style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .background(colors.surfaceVariant, RoundedCornerShape(14.dp))
+                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(14.dp))
+                    .clickable { showBacklinks = true }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             )
             // Overflow (heurística 8): acciones no esenciales fuera del primer
             // nivel — ajustes de página, tags, exportar, eliminar.

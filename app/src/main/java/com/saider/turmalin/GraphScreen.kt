@@ -67,9 +67,11 @@ private const val DIMMED_ALPHA = 0.2f
 // de golpe al cruzarlo.
 private const val TEXT_FADE_WIDTH = 0.5f
 
-private val CONNECTED_NODE_COLOR = Color(0xFF3949AB)
+// Verde de marca (v2 3.2): los nodos son notas Turmalin — el azul queda
+// reservado para los vínculos dentro del canvas.
+private val CONNECTED_NODE_COLOR = Color(0xFF20A374)
 private val ORPHAN_NODE_COLOR = Color(0xFFB0BEC5)
-private val EDGE_COLOR = Color(0xFF9FA8DA)
+private val EDGE_COLOR = Color(0x996DD5A3)
 
 fun nodeRadius(degree: Int): Float =
     min(NODE_BASE_RADIUS + NODE_RADIUS_PER_LINK * degree, NODE_MAX_RADIUS)
@@ -121,7 +123,12 @@ fun GraphScreen(
             )
             Spacer(modifier = Modifier.weight(1f))
             // Abre/cierra el panel de ajustes del grafo (estilo Obsidian).
-            AppButton(label = "Ajustes", onClick = { showPanel = !showPanel })
+            AppIconButton(
+                icon = AppIcons.Settings,
+                label = "Ajustes del grafo",
+                selected = showPanel,
+                onClick = { showPanel = !showPanel },
+            )
         }
 
         if (notes.isEmpty()) {
@@ -442,7 +449,10 @@ fun GraphScreen(
                     // Nodos + títulos.
                     drawIntoCanvas { canvas ->
                         val labelPaint = android.graphics.Paint().apply {
-                            textSize = 26f
+                            // Piso de legibilidad (v2 3.2): el zoom-out no deja
+                            // la etiqueta por debajo de ~13px físicos — antes de
+                            // eso el fade por umbral ya la oculta.
+                            textSize = kotlin.math.max(26f, 13f / viewport.scale)
                             isAntiAlias = true
                             textAlign = android.graphics.Paint.Align.CENTER
                         }
@@ -510,9 +520,8 @@ fun GraphScreen(
             // guía discreto solo hasta que el usuario lo descarta.
             FirstUseHint(
                 hintKey = "graph_gestures",
-                text = "Toca un nodo para resaltarlo · doble toque abre la nota · " +
-                    "arrastra un nodo para reacomodarlo · " +
-                    "un dedo mueve la vista, dos hacen zoom",
+                // Una sola línea (v2 3.2): lo esencial; el resto se descubre tocando.
+                text = "Doble toque abre la nota · arrastra nodos · pellizca para zoom",
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(12.dp),
@@ -535,7 +544,8 @@ fun GraphScreen(
     }
 }
 
-private val PANEL_ACCENT = Color(0xFF3949AB)
+// Verde de marca (v2 3.2), a juego con los nodos.
+private val PANEL_ACCENT = Color(0xFF20A374)
 
 /**
  * Panel de ajustes del grafo (estilo Obsidian): secciones Visualización y

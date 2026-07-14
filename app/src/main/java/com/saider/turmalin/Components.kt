@@ -167,11 +167,13 @@ fun AppIconButton(
     val isPressed by interaction.collectIsPressedAsState()
     var showLabel by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.dp)
-    val background = (if (selected) colors.accent else colors.surface)
+    // Selección con accentSoft (v2 3.2): el fondo lleno saturaba la barra —
+    // el velo verde + icono accent marca igual de claro con menos peso.
+    val background = (if (selected) colors.accentSoft else colors.surface)
         .let { if (isPressed && enabled) it.pressed(colors.isDark) else it }
     val tint = when {
         !enabled -> colors.disabled
-        selected -> colors.onAccent
+        selected -> colors.accent
         else -> colors.textPrimary
     }
     Box(
@@ -217,12 +219,16 @@ fun AppIconButton(
     }
 }
 
-/** Flecha de volver, idéntica en todas las barras superiores. */
+/** Flecha de volver, idéntica en todas las barras superiores. [compact] la
+ *  reduce para barras que ceden espacio al contenido (la nota, v2 3.2). */
 @Composable
-fun BackArrow(onClick: () -> Unit) {
+fun BackArrow(onClick: () -> Unit, compact: Boolean = false) {
     BasicText(
         text = "←",
-        style = TextStyle(color = Theme.colors.textPrimary, fontSize = AppType.display),
+        style = TextStyle(
+            color = Theme.colors.textPrimary,
+            fontSize = if (compact) AppType.title else AppType.display,
+        ),
         modifier = Modifier
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 4.dp),

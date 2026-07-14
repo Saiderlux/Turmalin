@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -60,8 +61,14 @@ fun SettingsScreen(
             )
         }
 
-        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            SettingsSection("Gestos rápidos (v2 3.3)")
+        // Ancho contenido (v2 3.2): en tablet horizontal el toggle debe vivir
+        // junto a su label, no al otro extremo de la pantalla.
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .widthIn(max = 600.dp),
+        ) {
+            SettingsSection("Gestos rápidos")
             ToggleRow(
                 label = "Tap con dos dedos deshace",
                 checked = settings.gestureUndo,
@@ -117,7 +124,8 @@ private fun SettingsSection(text: String) {
     BasicText(
         text = text,
         style = TextStyle(
-            color = Theme.colors.textSecondary,
+            // Títulos de sección en el verde de marca (v2 3.2).
+            color = Theme.colors.accent,
             fontSize = AppType.body,
             fontWeight = FontWeight.Bold,
         ),

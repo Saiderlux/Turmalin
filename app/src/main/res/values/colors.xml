@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo del adaptive icon: el gris verdoso del logo (v2 3.2). -->
+    <color name="ic_launcher_background">#273F3C</color>
+</resources>

@@ -131,13 +131,30 @@ fun InkToolbar(
     // RF-04: abre el selector de color personalizado (el diálogo vive en el
     // canvas; la barra solo lo invoca).
     onOpenColorPicker: () -> Unit,
-    vertical: Boolean,
+    // Borde acoplado (v2 3.2): decide orientación y qué esquinas se redondean
+    // (solo las que miran al canvas — la barra vive al ras del borde).
+    dockEdge: DockEdge,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = Theme.colors
+    val vertical = dockEdge.isVertical
     val highlightedTool = temporaryEraserTool ?: selectedTool
+
+    // Separador entre grupos de la barra (v2 3.2): herramientas · deshacer/
+    // rehacer · pines — perpendicular a la orientación de la fila.
+    val divider: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier
+                .padding(if (vertical) 0.dp else 3.dp)
+                .size(
+                    width = if (vertical) 24.dp else 1.dp,
+                    height = if (vertical) 1.dp else 24.dp,
+                )
+                .background(colors.outlineVariant),
+        )
+    }
 
     // Iconos en vez de texto (v2 3.1): menos ancho ocupado en la Tab S6 Lite;
     // el label sigue disponible con long-press (ver [AppIconButton]).
@@ -179,6 +196,7 @@ fun InkToolbar(
             selected = highlightedTool == Tool.SELECT,
             onClick = { onToolSelect(Tool.SELECT) },
         )
+        divider()
         AppIconButton(
             icon = AppIcons.Undo,
             label = "Deshacer",
@@ -193,6 +211,7 @@ fun InkToolbar(
             enabled = canRedo,
             onClick = onRedo,
         )
+        if (pins.isNotEmpty() || selectedTool.drawsInk) divider()
         // Pines (v2 1.4): siempre visibles para cambiar de lápiz favorito con
         // cualquier herramienta activa. ¿El pin coincide con la config vigente?
         // penColorArgb/penSize ya son los de la herramienta activa.
@@ -300,14 +319,26 @@ fun InkToolbar(
         }
     }
 
+    // Al ras del borde acoplado (v2 3.2): solo se redondean las esquinas que
+    // miran al canvas.
+    val r = 12.dp
+    val containerShape = when (dockEdge) {
+        DockEdge.TOP -> RoundedCornerShape(bottomStart = r, bottomEnd = r)
+        DockEdge.BOTTOM -> RoundedCornerShape(topStart = r, topEnd = r)
+        DockEdge.LEFT -> RoundedCornerShape(topEnd = r, bottomEnd = r)
+        DockEdge.RIGHT -> RoundedCornerShape(topStart = r, bottomStart = r)
+    }
     val container = Modifier
-        .background(colors.surface, RoundedCornerShape(12.dp))
-        .border(1.dp, colors.outlineVariant, RoundedCornerShape(12.dp))
+        .background(colors.surface, containerShape)
+        .border(1.dp, colors.outlineVariant, containerShape)
         .padding(6.dp)
 
     if (vertical) {
         Row(modifier = modifier.then(container)) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { tools() }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { tools() }
             if (selectedTool.drawsInk) {
                 Column(
                     modifier = Modifier.padding(start = 6.dp),

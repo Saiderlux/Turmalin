@@ -71,6 +71,7 @@ Todo ítem debe seguir respetando las reglas invariables de `CLAUDE.md`: capa de
 **Qué:** pase de pulido visual sobre pantallas existentes (galería, nota, grafo, ajustes) una vez estén claras las adiciones de v2 — jerarquía visual, espaciado, estados de carga/vacío, feedback táctil.
 **Por qué:** pedido explícito del usuario; una vez la toolbar crece con más herramientas (1.1, 1.2) y plantillas (2.3), la superficie de UI actual necesita reorganizarse, no solo iconizarse.
 **Complejidad:** L, y depende de que 1.1–2.3 estén definidos primero — recomiendo abordarlo al final de esta fase, no en paralelo. Candidato a diseño propio (invocar `frontend-design` cuando se llegue a planificar esta sección).
+**Estado:** ✅ implementado (jul 2026) — pulido con identidad de marca: acento verde de turmalina en tokens (`accent`/`accentSoft` por tema, del logo `TURMALIN_logo.svg`), icono de launcher adaptive del cristal, logo en el header de la galería. Galería: header con jerarquía (Grafo/Papelera/Repaso como iconos, Repaso lleno solo con vencidas), tarjetas uniformes con placeholder y fecha corta, «Sin título» atenuado. Nota: barra superior compacta y toolbar acoplada al ras del borde con separadores de grupo. Selección en verde vs vínculo en azul (los dos lazos se distinguen por color). Grafo con nodos de marca, hint de una línea y piso de tamaño de label; Ajustes contenidos a 600dp sin jerga interna. Verificado en tema claro y oscuro en la Tab S6 Lite.
 
 ### 3.3 Gestos rápidos configurables
 **Qué:** gestos táctiles de atajo sobre el canvas, empezando por tap de dos dedos = deshacer (y su pareja natural: tap de tres dedos o doble tap de dos dedos = rehacer). Cada gesto debe poder activarse/desactivarse (ver 3.4).
@@ -144,7 +145,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 | | 2.2 Tamaño numérico | S | ✅ ya existía en v1 |
 | | 2.3 Plantillas guardables | M | ✅ hecho |
 | 3. UX/UI | 3.1 Iconos | S | ✅ hecho |
-| | 3.2 Revisión UX/UI general | L (depende del resto) | pendiente |
+| | 3.2 Revisión UX/UI general | L | ✅ hecho |
 | | 3.3 Gestos rápidos configurables | M | ✅ hecho |
 | | 3.4 Menú de ajustes de la app | M | ✅ hecho |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |

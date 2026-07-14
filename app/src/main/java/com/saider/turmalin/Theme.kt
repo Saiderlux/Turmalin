@@ -36,6 +36,8 @@ data class AppColors(
     val accent: Color,
     /** Contenido sobre [accent]. */
     val onAccent: Color,
+    /** Fondo sutil de selección/badges: [accent] translúcido (v2 3.2). */
+    val accentSoft: Color,
     /** Acciones destructivas. */
     val danger: Color,
     /** Scrim de sheets. */
@@ -56,8 +58,10 @@ val LightAppColors = AppColors(
     disabled = Color(0xFFBDBDBD),
     outline = Color(0xFFCCCCCC),
     outlineVariant = Color(0xFFE0E0E0),
-    accent = Color.Black,
+    // Verde de marca (v2 3.2): el oscuro del logo, con contraste AA sobre blanco.
+    accent = Color(0xFF0C643F),
     onAccent = Color.White,
+    accentSoft = Color(0x2620A374),
     danger = Color(0xFFB00020),
     scrim = Color(0x66000000),
     canvasBackdrop = Color(0xFFEDEDED),
@@ -74,8 +78,10 @@ val DarkAppColors = AppColors(
     disabled = Color(0xFF5A5A5A),
     outline = Color(0xFF4A4A4A),
     outlineVariant = Color(0xFF333333),
-    accent = Color(0xFFECECEC),
-    onAccent = Color(0xFF121212),
+    // Verde de marca (v2 3.2): el claro del logo, con texto oscuro encima.
+    accent = Color(0xFF6DD5A3),
+    onAccent = Color(0xFF032A12),
+    accentSoft = Color(0x336DD5A3),
     danger = Color(0xFFEF5350),
     scrim = Color(0x99000000),
     canvasBackdrop = Color(0xFF262626),

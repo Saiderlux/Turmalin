@@ -37,6 +37,10 @@ import androidx.compose.ui.zIndex
  * restante, ofrece una única acción contextual y se descarta solo al agotarse
  * el tiempo. Nunca bloquea el canvas ni intercepta gestos de ink.
  */
+// Acción/progreso del aviso: verde claro de la marca (v2 3.2). Constante y no
+// token porque la superficie del aviso es oscura fija en ambos temas.
+private val NOTICE_ACTION_GREEN = Color(0xFF6DD5A3)
+
 @Composable
 fun TransientNotice(
     message: String,
@@ -85,7 +89,7 @@ fun TransientNotice(
             BasicText(
                 text = actionLabel,
                 style = TextStyle(
-                    color = Color(0xFF80CBC4),
+                    color = NOTICE_ACTION_GREEN,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 ),
@@ -97,7 +101,7 @@ fun TransientNotice(
             modifier = Modifier
                 .fillMaxWidth(remainingFraction)
                 .height(3.dp)
-                .background(Color(0xFF80CBC4)),
+                .background(NOTICE_ACTION_GREEN),
         )
     }
 }

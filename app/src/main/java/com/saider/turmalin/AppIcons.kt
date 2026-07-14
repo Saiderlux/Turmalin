@@ -81,6 +81,28 @@ object AppIcons {
             "m6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z",
     )
 
+    // Grafo (v2 3.2): tres nodos conectados — dibujado a mano, como Select.
+    val Graph = icon(
+        "graph",
+        "M5 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" +
+            "M12 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6.4 8.9l-1.7-1 4.9 8.5 1.7-1z" +
+            "M17.6 8.9l1.7-1-4.9 8.5-1.7-1zM7 4h10v2H7z",
+    )
+
+    // Papelera (material "delete", RF-36).
+    val Trash = icon(
+        "trash",
+        "M6 19c0 1.1 0.9 2 2 2h8c1.1 0 2-0.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5" +
+            "v2h14V4z",
+    )
+
+    // Repaso espaciado (v2 4.3): dos tarjetas apiladas (material "filter_none"
+    // simplificado).
+    val Review = icon(
+        "review",
+        "M8 3h13v13h-2V5H8zM3 8h13v13H3zm2 2v9h9v-9z",
+    )
+
     // Ajustes de la app (material "settings", v2 3.4).
     val Settings = icon(
         "settings",
