@@ -146,6 +146,11 @@ fun GalleryScreen(
                     onSetSortOrder = onSetSortOrder,
                     onOpen = onOpenNote,
                     onLongPress = { note -> dialog = GalleryDialog.NoteActions(note) },
+                    // Post-v2: carpetas desplegables solo en la raíz sin filtro.
+                    grouped = showNotebooks,
+                    onFolderLongPress = { notebook ->
+                        dialog = GalleryDialog.NotebookActions(notebook)
+                    },
                     modifier = Modifier.weight(1f),
                 )
             } else if (notes.isEmpty() && (!showNotebooks || state.notebooks.isEmpty())) {
@@ -243,7 +248,7 @@ fun GalleryScreen(
     when (val current = dialog) {
         null -> Unit
         is GalleryDialog.NewNotebook -> TextInputDialog(
-            title = "Nuevo cuaderno",
+            title = "Nueva carpeta",
             confirmLabel = "Crear",
             onConfirm = { name ->
                 onCreateNotebook(name)
@@ -261,7 +266,7 @@ fun GalleryScreen(
             onDismiss = { dialog = null },
         )
         is GalleryDialog.RenameNotebook -> TextInputDialog(
-            title = "Renombrar cuaderno",
+            title = "Renombrar carpeta",
             confirmLabel = "Guardar",
             initialValue = current.notebook.name,
             onConfirm = { name ->
@@ -443,7 +448,7 @@ private fun GalleryHeader(
                 )
             }
             AppButton(
-                label = "+ Cuaderno",
+                label = "+ Carpeta",
                 onClick = onNewNotebook,
                 modifier = Modifier.padding(start = 8.dp),
             )
@@ -463,7 +468,7 @@ private fun GalleryHeader(
 private val sortLabels = mapOf(
     SortOrder.MODIFIED to "Fecha",
     SortOrder.TITLE to "Título",
-    SortOrder.NOTEBOOK to "Cuaderno",
+    SortOrder.NOTEBOOK to "Carpeta",
     SortOrder.TAGS to "Tags",
     SortOrder.LINKS to "Links",
 )
@@ -482,18 +487,64 @@ private fun NotesTable(
     onSetSortOrder: (SortOrder) -> Unit,
     onOpen: (NoteMeta) -> Unit,
     onLongPress: (NoteMeta) -> Unit,
+    // Post-v2: en la raíz sin búsqueda las carpetas son filas desplegables con
+    // sus notas indentadas; con filtro activo la tabla vuelve a ser plana.
+    grouped: Boolean = false,
+    onFolderLongPress: (Notebook) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = Theme.colors
     val nameById = state.notebooks.associate { it.id to it.name }
     val dateFormat = remember { DateFormat.getDateInstance(DateFormat.SHORT) }
+    // Carpetas expandidas (por sesión): colapsadas por defecto.
+    var expandedIds by remember { mutableStateOf(setOf<String>()) }
+
+    // Fila de nota, compartida por los modos plano y agrupado ([indented]
+    // añade la sangría que marca la pertenencia a la carpeta de arriba).
+    val noteRow: @Composable (NoteMeta, Boolean) -> Unit = { note, indented ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { onOpen(note) },
+                    onLongClick = { onLongPress(note) },
+                )
+                .padding(vertical = 12.dp)
+                .padding(start = if (indented) 28.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TableCell(note.title, 3f, colors.textPrimary)
+            TableCell(
+                note.notebookIds.mapNotNull { nameById[it] }.joinToString(", "),
+                2f,
+                colors.textSecondary,
+            )
+            TableCell(
+                note.tags.joinToString(" ") { "#$it" },
+                2f,
+                colors.textSecondary,
+            )
+            TableCell(
+                dateFormat.format(Date(note.modifiedAtMillis)),
+                1.6f,
+                colors.textSecondary,
+            )
+            TableCell(
+                "${outgoingLinkCount(note.uuid, state.graph)}→ " +
+                    "${incomingLinkCount(note.uuid, state.graph)}←",
+                1.2f,
+                colors.textSecondary,
+            )
+        }
+    }
+
     Column(modifier = modifier.padding(horizontal = 20.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TableHeader("Título", 3f, SortOrder.TITLE, state.sortOrder, onSetSortOrder)
-            TableHeader("Cuaderno", 2f, SortOrder.NOTEBOOK, state.sortOrder, onSetSortOrder)
+            TableHeader("Carpeta", 2f, SortOrder.NOTEBOOK, state.sortOrder, onSetSortOrder)
             TableHeader("Tags", 2f, SortOrder.TAGS, state.sortOrder, onSetSortOrder)
             TableHeader("Fecha", 1.6f, SortOrder.MODIFIED, state.sortOrder, onSetSortOrder)
             TableHeader("Links", 1.2f, SortOrder.LINKS, state.sortOrder, onSetSortOrder)
@@ -504,41 +555,46 @@ private fun NotesTable(
                 .height(1.dp)
                 .background(colors.outlineVariant),
         )
-        LazyColumn {
-            lazyItems(notes, key = { it.uuid }) { note ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .combinedClickable(
-                            onClick = { onOpen(note) },
-                            onLongClick = { onLongPress(note) },
-                        )
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TableCell(note.title, 3f, colors.textPrimary)
-                    TableCell(
-                        note.notebookIds.mapNotNull { nameById[it] }.joinToString(", "),
-                        2f,
-                        colors.textSecondary,
-                    )
-                    TableCell(
-                        note.tags.joinToString(" ") { "#$it" },
-                        2f,
-                        colors.textSecondary,
-                    )
-                    TableCell(
-                        dateFormat.format(Date(note.modifiedAtMillis)),
-                        1.6f,
-                        colors.textSecondary,
-                    )
-                    TableCell(
-                        "${outgoingLinkCount(note.uuid, state.graph)}→ " +
-                            "${incomingLinkCount(note.uuid, state.graph)}←",
-                        1.2f,
-                        colors.textSecondary,
-                    )
+        if (grouped) {
+            val rows = tableRows(notes, state.notebooks, expandedIds)
+            LazyColumn {
+                lazyItems(rows, key = { it.key }) { row ->
+                    when (row) {
+                        is TableRow.Folder -> Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = {
+                                        val id = row.notebook.id
+                                        expandedIds = if (row.expanded) {
+                                            expandedIds - id
+                                        } else {
+                                            expandedIds + id
+                                        }
+                                    },
+                                    onLongClick = { onFolderLongPress(row.notebook) },
+                                )
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TableCell(
+                                (if (row.expanded) "▾ " else "▸ ") + row.notebook.name,
+                                3f,
+                                colors.textPrimary,
+                            )
+                            TableCell(
+                                if (row.noteCount == 1) "1 nota" else "${row.noteCount} notas",
+                                6.8f, // resto de las columnas
+                                colors.textSecondary,
+                            )
+                        }
+                        is TableRow.Note -> noteRow(row.note, row.indented)
+                    }
                 }
+            }
+        } else {
+            LazyColumn {
+                lazyItems(notes, key = { it.uuid }) { note -> noteRow(note, false) }
             }
         }
     }
@@ -934,7 +990,7 @@ private fun NoteActionsDialog(
     Dialog(onDismissRequest = onDismiss) {
         DialogSurface {
             DialogTitle(note.title)
-            DialogOption(label = "Cuadernos…", onClick = onMove)
+            DialogOption(label = "Carpetas…", onClick = onMove)
             // RF-36: reversible (papelera + deshacer), sin diálogo de confirmación.
             DialogOption(label = "Eliminar", onClick = onDelete, danger = true)
         }
@@ -959,10 +1015,10 @@ private fun NoteNotebooksDialog(
     var selected by remember { mutableStateOf(note.notebookIds.toSet()) }
     Dialog(onDismissRequest = onDismiss) {
         DialogSurface {
-            DialogTitle("Cuadernos de «${note.title}»")
+            DialogTitle("Carpetas de «${note.title}»")
             if (notebooks.isEmpty()) {
                 BasicText(
-                    text = "No hay cuadernos todavía",
+                    text = "No hay carpetas todavía",
                     style = TextStyle(color = colors.textSecondary, fontSize = AppType.body),
                 )
             }

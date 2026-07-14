@@ -128,6 +128,54 @@ fun tableNotes(state: GalleryUiState): List<NoteMeta> =
         sortedNotes(state.notes, state)
     }
 
+/** Fila de la vista de tabla agrupada por carpetas (post-v2). [key] es única
+ *  incluso con multi-pertenencia (la misma nota bajo dos carpetas). */
+sealed interface TableRow {
+    val key: String
+
+    data class Folder(
+        val notebook: Notebook,
+        val noteCount: Int,
+        val expanded: Boolean,
+    ) : TableRow {
+        override val key: String get() = "folder-${notebook.id}"
+    }
+
+    data class Note(
+        val note: NoteMeta,
+        val indented: Boolean,
+        override val key: String,
+    ) : TableRow
+}
+
+/**
+ * Filas de la tabla en la raíz sin búsqueda (post-v2): carpetas en orden
+ * alfabético — colapsadas salvo las de [expandedIds] — con sus notas
+ * indentadas debajo (conservando el orden de [notes], que ya viene por el
+ * sortOrder vigente), y las notas sueltas al final al nivel raíz. Una nota en
+ * varias carpetas aparece bajo cada una (multi-pertenencia, v2 4.4).
+ * Función pura, testeable en JVM.
+ */
+fun tableRows(
+    notes: List<NoteMeta>,
+    notebooks: List<Notebook>,
+    expandedIds: Set<String>,
+): List<TableRow> = buildList {
+    for (notebook in notebooks.sortedBy { it.name.lowercase() }) {
+        val inFolder = notes.filter { notebook.id in it.notebookIds }
+        val expanded = notebook.id in expandedIds
+        add(TableRow.Folder(notebook, inFolder.size, expanded))
+        if (expanded) {
+            for (note in inFolder) {
+                add(TableRow.Note(note, indented = true, key = "${notebook.id}/${note.uuid}"))
+            }
+        }
+    }
+    for (note in notes.filter { it.notebookIds.isEmpty() }) {
+        add(TableRow.Note(note, indented = false, key = note.uuid))
+    }
+}
+
 /**
  * Estado de la pantalla de inicio (RF-13/14/15). Las operaciones delegan al
  * [NoteRepository] y recargan el estado completo: el vault es local y chico,
