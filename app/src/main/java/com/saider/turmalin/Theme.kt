@@ -106,10 +106,15 @@ object AppType {
     val display = 24.sp
 }
 
-/** Tema de la app: paleta clara u oscura según el sistema. */
+/** Tema de la app: manual ("light"/"dark") o siguiendo al sistema (post-v2). */
 @Composable
-fun AppTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkAppColors else LightAppColors
+fun AppTheme(theme: String = "system", content: @Composable () -> Unit) {
+    val dark = when (theme) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
+    val colors = if (dark) DarkAppColors else LightAppColors
     CompositionLocalProvider(LocalAppColors provides colors, content = content)
 }
 

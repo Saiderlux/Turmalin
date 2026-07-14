@@ -42,8 +42,12 @@ class MainActivity : ComponentActivity() {
         val wetHighLatency = intent.getBooleanExtra("wet_high_latency", true)
 
         setContent {
-          AppTheme {
-            val repo = remember { NoteRepository(applicationContext) }
+          // Settings ANTES del tema: el selector manual (post-v2) vive en
+          // AppSettings y AppTheme lo necesita para decidir la paleta.
+          val repo = remember { NoteRepository(applicationContext) }
+          // v2 3.4: ajustes globales; cada cambio persiste al instante.
+          var appSettings by remember { mutableStateOf(repo.loadAppSettings()) }
+          AppTheme(theme = appSettings.theme) {
             val viewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.factory(repo))
             val galleryState by viewModel.state.collectAsState()
             var openNote by remember { mutableStateOf<NoteMeta?>(null) }
@@ -53,8 +57,6 @@ class MainActivity : ComponentActivity() {
             var showSettings by remember { mutableStateOf(false) }
             // v2 4.3: cola de repaso espaciado.
             var showReview by remember { mutableStateOf(false) }
-            // v2 3.4: ajustes globales; cada cambio persiste al instante.
-            var appSettings by remember { mutableStateOf(repo.loadAppSettings()) }
             val titleNudge by viewModel.titleNudge.collectAsState()
             val deleteUndo by viewModel.deleteUndo.collectAsState()
             val saveStatus by viewModel.saveStatus.collectAsState()

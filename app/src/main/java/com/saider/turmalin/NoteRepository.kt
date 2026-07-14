@@ -226,6 +226,8 @@ data class AppSettings(
     val stylusButtonEraser: Boolean = true,
     // v2 4.2: la galería se muestra como tabla en vez de cuadrícula.
     val galleryTable: Boolean = false,
+    // Post-v2: tema manual — "system" | "light" | "dark".
+    val theme: String = "system",
 )
 
 /**
@@ -540,6 +542,7 @@ class NoteRepository(context: Context) {
                 gestureRedo = a.optBoolean("gestureRedo", d.gestureRedo),
                 stylusButtonEraser = a.optBoolean("stylusButtonEraser", d.stylusButtonEraser),
                 galleryTable = a.optBoolean("galleryTable", d.galleryTable),
+                theme = a.optString("theme", d.theme),
             )
         }.getOrDefault(AppSettings())
     }
@@ -554,7 +557,8 @@ class NoteRepository(context: Context) {
                 .put("gestureUndo", s.gestureUndo)
                 .put("gestureRedo", s.gestureRedo)
                 .put("stylusButtonEraser", s.stylusButtonEraser)
-                .put("galleryTable", s.galleryTable),
+                .put("galleryTable", s.galleryTable)
+                .put("theme", s.theme),
         )
         settingsFile.writeText(json.toString())
     }

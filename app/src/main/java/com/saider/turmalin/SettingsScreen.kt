@@ -68,6 +68,24 @@ fun SettingsScreen(
                 .padding(horizontal = 24.dp)
                 .widthIn(max = 600.dp),
         ) {
+            // Tema manual (post-v2): aplica en vivo y persiste al instante.
+            SettingsSection("Tema")
+            Row(modifier = Modifier.padding(vertical = 8.dp)) {
+                for ((label, value) in listOf(
+                    "Sistema" to "system",
+                    "Claro" to "light",
+                    "Oscuro" to "dark",
+                )) {
+                    AppChip(
+                        label = label,
+                        selected = settings.theme == value,
+                        onClick = { onChange(settings.copy(theme = value)) },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
             SettingsSection("Gestos rápidos")
             ToggleRow(
                 label = "Tap con dos dedos deshace",
