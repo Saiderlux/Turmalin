@@ -702,6 +702,90 @@ class NoteRepository(context: Context) {
         }.getOrElse { emptyList() }
     }
 
+    /** Reescribe las tarjetas de repaso de la nota (v2 4.3, clave `cards`),
+     *  preservando las demás claves de annotations.json. */
+    fun saveCards(uuid: String, cards: List<ReviewCard>) {
+        val dir = File(notesDir, uuid)
+        dir.mkdirs()
+        val file = File(dir, "annotations.json")
+        val json = runCatching { JSONObject(file.readText()) }.getOrElse { JSONObject() }
+        val array = JSONArray()
+        for (card in cards) {
+            array.put(
+                JSONObject()
+                    .put("id", card.id)
+                    .put("page", card.page)
+                    .put("frontStrokeIds", JSONArray(card.frontStrokeIds))
+                    .put("frontBbox", JSONArray(card.frontBbox))
+                    .put("backStrokeIds", JSONArray(card.backStrokeIds))
+                    .put("backBbox", JSONArray(card.backBbox))
+                    .put("ease", card.ease.toDouble())
+                    .put("intervalDays", card.intervalDays)
+                    .put("dueAtMillis", card.dueAtMillis)
+                    .put("reps", card.reps)
+                    .put("lapses", card.lapses),
+            )
+        }
+        json.put("cards", array)
+        file.writeText(json.toString())
+    }
+
+    /** Tarjetas de repaso de la nota; entrada malformada se ignora (RNF-07). */
+    fun loadCards(uuid: String): List<ReviewCard> {
+        val file = File(File(notesDir, uuid), "annotations.json")
+        if (!file.exists()) return emptyList()
+        return runCatching {
+            val array = JSONObject(file.readText()).optJSONArray("cards")
+                ?: return emptyList()
+            buildList {
+                for (i in 0 until array.length()) {
+                    runCatching {
+                        val json = array.getJSONObject(i)
+                        fun longs(key: String): List<Long> {
+                            val arr = json.optJSONArray(key) ?: return emptyList()
+                            return List(arr.length()) { arr.getLong(it) }
+                        }
+                        fun floats(key: String): List<Float> {
+                            val arr = json.optJSONArray(key) ?: return emptyList()
+                            return List(arr.length()) { arr.getDouble(it).toFloat() }
+                        }
+                        add(
+                            ReviewCard(
+                                id = json.getLong("id"),
+                                page = json.optInt("page", 0),
+                                frontStrokeIds = longs("frontStrokeIds"),
+                                frontBbox = floats("frontBbox"),
+                                backStrokeIds = longs("backStrokeIds"),
+                                backBbox = floats("backBbox"),
+                                ease = json.optDouble("ease", 2.5).toFloat(),
+                                intervalDays = json.optInt("intervalDays", 0),
+                                dueAtMillis = json.getLong("dueAtMillis"),
+                                reps = json.optInt("reps", 0),
+                                lapses = json.optInt("lapses", 0),
+                            )
+                        )
+                    }
+                }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    /**
+     * Cola de repaso (v2 4.3): tarjetas vencidas de todo el vault, más antiguas
+     * primero. Mismo costo de escaneo que ya paga la galería con los meta.
+     */
+    fun dueCards(nowMillis: Long): List<Pair<NoteMeta, ReviewCard>> =
+        listNotes()
+            .flatMap { meta -> loadCards(meta.uuid).map { meta to it } }
+            .filter { (_, card) -> card.dueAtMillis <= nowMillis }
+            .sortedBy { (_, card) -> card.dueAtMillis }
+
+    /** Próximo vencimiento futuro del vault, o null si no hay tarjetas. */
+    fun nextDueAt(): Long? =
+        listNotes()
+            .flatMap { meta -> loadCards(meta.uuid) }
+            .minOfOrNull { it.dueAtMillis }
+
     /**
      * Guarda el texto OCR por página en annotations.json (RF-25, RF-33).
      * Preserva las demás claves del archivo (links, highlights futuros) y

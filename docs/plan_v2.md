@@ -104,6 +104,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 **Qué:** marcar una nota o región como "tarjeta de repaso" y que el sistema la resurfacee periódicamente para reforzar memoria, similar a las flashcards de Heptabase.
 **Por qué:** gap detectado; encaja con el perfil de usuario que estudia escribiendo a mano, pero es la feature de mayor riesgo de scope creep — convierte a Turmalin en una app de flashcards además de notas.
 **Complejidad:** L. Requiere un scheduler propio (algoritmo tipo SM-2), persistencia de estado de repaso por nota/región, y una superficie de UI nueva (cola de repaso diario). **Recomendación:** evaluar como v3, no v2 — no viene pedido por el usuario y compite en alcance con el resto de esta fase.
+**Estado:** ✅ implementado (jul 2026) — tarjetas por región (frente obligatorio + reverso opcional, referenciadas por strokeIds estables en `annotations.json`, clave `cards`), capturadas con la acción «Tarjeta» de la herramienta Selección; scheduler SM-2 simplificado (Otra vez / Bien / Fácil) como función pura con tests JVM; cola pasiva en `ReviewScreen` con entrada «Repaso (n)» en la galería (sin notificaciones, cero permisos). La tarjeta sobrevive a goma parcial y lasso de edición; muere con el borrado total de su frente (aviso + deshacer, igual que los links).
 
 ### 4.4 Multi-pertenencia: una nota visible desde varios cuadernos sin duplicar — aprobado
 **Qué:** hoy una nota vive en un único cuaderno (RF-14, "mover"). Permitir que aparezca listada en más de un cuaderno sin duplicar archivo ni UUID — el cuaderno pasa de "carpeta exclusiva" a "colección"/etiqueta de agrupación visual.
@@ -118,6 +119,7 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 **Qué:** un segundo lazo, distinto del "Lazo de vínculo" (RF-17), cuyo propósito es seleccionar trazos ya escritos para moverlos, redimensionarlos o rotarlos — sin crear un link. Debe quedar nombrado y iconografiado de forma inconfundible frente al Lazo de vínculo (ver decisión de nombres en el glosario, sección 3 del doc de requerimientos) para que el usuario nunca confunda "seleccionar para reorganizar" con "seleccionar para vincular".
 **Por qué:** excluido explícitamente del MVP (sección 2); gap frente a toda app de notas manuscritas madura — hoy en Turmalin un trazo mal ubicado solo se puede borrar y rehacer, no reposicionar.
 **Complejidad:** L. Es la feature de mayor riesgo técnico de todo el plan: mover/redimensionar trazos existentes interactúa directamente con la regla invariable "la capa de ink es inmutable salvo por trazo directo del usuario" — mover SÍ es una escritura nueva sobre esa capa, hay que definir con cuidado si cuenta como "trazo nuevo" para RF-37 (undo) y qué pasa con una región linkeada (RF-23a) cuando su ink de referencia se desplaza: ¿el overlay se mueve con el trazo, o el link se invalida? Requiere diseño dedicado antes de estimarse en detalle — no alcanza con una sección de este documento.
+**Estado:** ✅ implementado (jul 2026) — herramienta «Selección» (nombre sin la palabra "lazo" para no confundir con el Lazo de vínculo): mover + escalar (uniforme, el grosor acompaña) + rotar, con recuadro de asas y preview por transformación del canvas. Al soltar, los trazos se reconstruyen (`StrokeInputBatch` transformado) conservando su ID → links y tarjetas siguen al trazo (el overlay se mueve, nada se invalida); un gesto = un paso de deshacer (RF-37). Matemática afín pura con tests JVM (`StrokeTransform.kt`).
 
 ---
 
@@ -147,9 +149,9 @@ Sección con gaps que **no pidió el usuario explícitamente** pero surgen de co
 | | 3.4 Menú de ajustes de la app | M | ✅ hecho |
 | 4. Gestión conocimiento | 4.1 Tags sugeridos por OCR | descartado | — |
 | | 4.2 Vista de tabla | M | ✅ hecho |
-| | 4.3 Repaso espaciado | L — recomendado diferir a v3 | pendiente |
+| | 4.3 Repaso espaciado | L | ✅ hecho |
 | | 4.4 Multi-pertenencia a cuadernos | M — aprobado | ✅ hecho |
-| 5. Lasso de edición | Mover/redimensionar trazos | L — requiere diseño dedicado | pendiente |
+| 5. Lasso de edición | Mover/redimensionar trazos | L | ✅ hecho |
 | 6. Bridge Obsidian | Export unidireccional | M | ✅ hecho |
 
 ## Nota de alcance

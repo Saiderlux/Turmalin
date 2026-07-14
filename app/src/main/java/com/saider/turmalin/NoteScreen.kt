@@ -231,6 +231,35 @@ fun NoteScreen(
     // long-press), ofrecido para deshacer con el mismo aviso estándar.
     var linkUndo by remember { mutableStateOf<DeletedLink?>(null) }
 
+    // Tarjetas de repaso de la nota (v2 4.3), en annotations.json junto a los
+    // links. Crear/repasar tarjetas no ensucia la tinta.
+    val cards = remember {
+        mutableStateListOf<ReviewCard>().apply { addAll(repo.loadCards(meta.uuid)) }
+    }
+    // Selección entregada por «Tarjeta», pendiente de elegir tipo (diálogo).
+    var cardSelection by remember { mutableStateOf<List<IdStroke>?>(null) }
+    // Frente ya elegido, esperando el lazo del reverso.
+    var pendingCardFront by remember { mutableStateOf<List<IdStroke>?>(null) }
+    // Tarjeta invalidada por la goma, ofrecida para deshacer (aviso RF-34).
+    var cardUndo by remember { mutableStateOf<DeletedCard?>(null) }
+
+    // Alta de una tarjeta (v2 4.3): vence de inmediato (cola de hoy).
+    fun addCard(front: List<IdStroke>, back: List<IdStroke>) {
+        cards.add(
+            ReviewCard(
+                id = newStrokeId(),
+                page = currentPage,
+                frontStrokeIds = front.map { it.id },
+                frontBbox = strokesBoundingBox(front),
+                backStrokeIds = back.map { it.id },
+                backBbox = if (back.isEmpty()) emptyList() else strokesBoundingBox(back),
+                dueAtMillis = System.currentTimeMillis(),
+            )
+        )
+        repo.saveCards(meta.uuid, cards)
+        infoNotice = "Tarjeta creada — aparecerá en el repaso de la galería"
+    }
+
     // Overlays de los links de la página actual (RF-23a): halo ceñido re-tiñendo
     // los trazos linkeados vivos. Si un link no resuelve trazos (todos borrados),
     // no se dibuja — la goma ya debería haberlo eliminado (RF-05b).
@@ -261,6 +290,18 @@ fun NoteScreen(
             connections = repo.loadBacklinks(meta.uuid)
             val restore = link.strokeIds.mapNotNull { fullStrokeById[it] }.distinct()
             linkUndo = DeletedLink(link, restore)
+        }
+        // v2 4.3: misma regla que los links — la tarjeta muere solo cuando
+        // NINGÚN trazo de su frente sigue vivo, con deshacer que restaura los
+        // trazos completos.
+        for (card in cards.toList()) {
+            if (card.page != currentPage) continue
+            if (card.frontStrokeIds.none { it in removedIds }) continue
+            if (strokes.any { it.id in card.frontStrokeIds }) continue
+            cards.remove(card)
+            repo.saveCards(meta.uuid, cards)
+            val restore = card.frontStrokeIds.mapNotNull { fullStrokeById[it] }.distinct()
+            cardUndo = DeletedCard(card, restore)
         }
     }
 
@@ -302,9 +343,11 @@ fun NoteScreen(
         inkHistory.clear()
     }
 
-    // Recalcula la bbox cacheada de cada link desde sus trazos vivos (tras
-    // recortes de goma parcial), conservando su conjunto de IDs de creación.
-    fun persistLinks() {
+    // Recalcula las bbox cacheadas de links y tarjetas desde sus trazos vivos
+    // (tras recortes de goma parcial o el lasso de edición), conservando sus
+    // conjuntos de IDs de creación. Trazos de otra página no están cargados:
+    // sus cachés se conservan tal cual.
+    fun persistAnnotations() {
         repo.saveRegionLinks(
             meta.uuid,
             links.map { link ->
@@ -312,12 +355,27 @@ fun NoteScreen(
                 if (live.isEmpty()) link else link.copy(bbox = strokesBoundingBox(live))
             },
         )
+        repo.saveCards(
+            meta.uuid,
+            cards.map { card ->
+                val front = strokes.filter { it.id in card.frontStrokeIds }
+                val back = strokes.filter { it.id in card.backStrokeIds }
+                var updated = card
+                if (front.isNotEmpty()) {
+                    updated = updated.copy(frontBbox = strokesBoundingBox(front))
+                }
+                if (back.isNotEmpty()) {
+                    updated = updated.copy(backBbox = strokesBoundingBox(back))
+                }
+                updated
+            },
+        )
     }
 
     fun save(): NoteMeta {
         val updated = snapshotMeta()
         repo.saveStrokes(meta.uuid, currentPage, strokes)
-        persistLinks()
+        persistAnnotations()
         repo.saveMeta(updated)
         return updated
     }
@@ -326,7 +384,9 @@ fun NoteScreen(
     fun switchToPage(target: Int) {
         if (target == currentPage || target !in 0 until pageCount) return
         repo.saveStrokes(meta.uuid, currentPage, strokes)
-        persistLinks()
+        persistAnnotations()
+        // Una captura de tarjeta a medias no cruza páginas (v2 4.3).
+        pendingCardFront = null
         currentPage = target
         loadPageInto(target)
         repo.saveMeta(snapshotMeta())
@@ -336,7 +396,7 @@ fun NoteScreen(
     // navega a ella de inmediato.
     fun addPage() {
         repo.saveStrokes(meta.uuid, currentPage, strokes)
-        persistLinks()
+        persistAnnotations()
         pageCount += 1
         // RF-06a: página nueva nace Carta retrato, no hereda de la actual.
         pageSizes.add(DEFAULT_PAGE_SIZE)
@@ -507,6 +567,16 @@ fun NoteScreen(
                 // Avisos de la herramienta Selección (v2 sección 5), con el
                 // mismo componente estándar RF-34.
                 onSelectionNotice = { infoNotice = it },
+                // Tarjetas de repaso (v2 4.3): la acción «Tarjeta» de la
+                // selección abre el diálogo de tipo; con un frente pendiente,
+                // el siguiente lazo captura el reverso.
+                onCreateCard = { selected -> cardSelection = selected },
+                cardBackCapture = pendingCardFront != null,
+                onCardBackSelected = { back ->
+                    val front = pendingCardFront
+                    pendingCardFront = null
+                    if (front != null) addCard(front, back)
+                },
                 onLinkTap = { targetUuid ->
                     onFollowLink(save(), inkChanged, targetUuid)
                 },
@@ -663,6 +733,55 @@ fun NoteScreen(
       // RF-05b + RF-34: aviso no bloqueante para deshacer el borrado del link
       // (por goma o deliberado). "Deshacer" re-crea el link; si el borrado fue
       // por goma, restaura además los trazos completos (snapshot).
+      // v2 4.3: tipo de tarjeta — solo frente (se muestra y se califica) o
+      // frente + reverso (el reverso se rodea con un segundo lazo).
+      cardSelection?.let { front ->
+        Dialog(onDismissRequest = { cardSelection = null }) {
+            DialogSurface {
+                DialogTitle("Tarjeta de repaso")
+                DialogOption(
+                    label = "Solo frente (se muestra y calificas tu recuerdo)",
+                    onClick = {
+                        cardSelection = null
+                        addCard(front, emptyList())
+                    },
+                )
+                DialogOption(
+                    label = "Frente + reverso (rodea la respuesta después)",
+                    onClick = {
+                        cardSelection = null
+                        pendingCardFront = front
+                        infoNotice = "Rodea la respuesta con «Selección» para completar la tarjeta"
+                    },
+                )
+                DialogOption(label = "Cancelar", onClick = { cardSelection = null })
+            }
+        }
+      }
+
+      // v2 4.3 + RF-34: la goma invalidó una tarjeta (todo su frente borrado);
+      // deshacer restaura los trazos completos y re-crea la tarjeta.
+      cardUndo?.let { deleted ->
+        TransientNotice(
+            message = "Tarjeta de repaso eliminada",
+            actionLabel = "Deshacer",
+            onAction = {
+                if (deleted.strokes.isNotEmpty()) {
+                    val ids = deleted.card.frontStrokeIds.toHashSet()
+                    strokes.removeAll { it.id in ids }
+                    strokes.addAll(deleted.strokes)
+                    deleted.strokes.forEach { fullStrokeById[it.id] = it }
+                    inkChanged = true
+                }
+                cards.add(deleted.card)
+                repo.saveCards(meta.uuid, cards)
+                cardUndo = null
+            },
+            onDismiss = { cardUndo = null },
+            modifier = Modifier.align(Alignment.BottomStart),
+        )
+      }
+
       linkUndo?.let { deleted ->
         TransientNotice(
             message = "Vínculo eliminado",
@@ -703,6 +822,10 @@ fun NoteScreen(
 /** Link borrado (por goma o deliberado), retenido para deshacer (RF-05b): el
  *  link y los trazos a restaurar (vacío si la tinta quedó intacta). */
 private data class DeletedLink(val link: LinkRegion, val strokes: List<IdStroke>)
+
+/** Tarjeta invalidada por la goma (v2 4.3), con los trazos completos del
+ *  frente para poder deshacer — mismo patrón que [DeletedLink]. */
+private data class DeletedCard(val card: ReviewCard, val strokes: List<IdStroke>)
 
 /** Menú de overflow de la nota: ajustes, tags, exportar y eliminar. */
 @Composable

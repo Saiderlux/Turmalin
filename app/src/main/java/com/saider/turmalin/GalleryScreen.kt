@@ -86,6 +86,11 @@ fun GalleryScreen(
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
+    // Repaso espaciado (v2 4.3): entrada visible solo si el vault tiene
+    // tarjetas; el contador muestra las vencidas hoy.
+    reviewDue: Int = 0,
+    reviewTotal: Int = 0,
+    onOpenReview: () -> Unit = {},
     // Vista de tabla (v2 4.2): alterna con la cuadrícula y persiste en ajustes.
     viewTable: Boolean,
     onToggleView: () -> Unit,
@@ -118,6 +123,9 @@ fun GalleryScreen(
                 onOpenGraph = onOpenGraph,
                 onOpenTrash = onOpenTrash,
                 onOpenSettings = onOpenSettings,
+                reviewDue = reviewDue,
+                reviewTotal = reviewTotal,
+                onOpenReview = onOpenReview,
             )
 
             SearchField(query = state.query, onSetQuery = onSetQuery)
@@ -345,6 +353,9 @@ private fun GalleryHeader(
     onOpenGraph: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
+    reviewDue: Int,
+    reviewTotal: Int,
+    onOpenReview: () -> Unit,
 ) {
     val colors = Theme.colors
     Row(
@@ -380,6 +391,16 @@ private fun GalleryHeader(
         }
         SortMenu(sortOrder = sortOrder, onSetSortOrder = onSetSortOrder)
         if (openNotebook == null) {
+            // v2 4.3: cola de repaso, visible solo con tarjetas en el vault;
+            // el contador es la cantidad vencida hoy.
+            if (reviewTotal > 0) {
+                AppButton(
+                    label = if (reviewDue > 0) "Repaso ($reviewDue)" else "Repaso",
+                    onClick = onOpenReview,
+                    style = if (reviewDue > 0) ButtonStyle.FILLED else ButtonStyle.OUTLINE,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
             // RF-19: entrada a la vista de grafo desde la raíz de la galería.
             AppButton(
                 label = "Grafo",

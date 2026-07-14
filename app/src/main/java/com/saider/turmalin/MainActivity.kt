@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
             var showGraph by remember { mutableStateOf(false) }
             var showTrash by remember { mutableStateOf(false) }
             var showSettings by remember { mutableStateOf(false) }
+            // v2 4.3: cola de repaso espaciado.
+            var showReview by remember { mutableStateOf(false) }
             // v2 3.4: ajustes globales; cada cambio persiste al instante.
             var appSettings by remember { mutableStateOf(repo.loadAppSettings()) }
             val titleNudge by viewModel.titleNudge.collectAsState()
@@ -106,6 +108,22 @@ class MainActivity : ComponentActivity() {
                     },
                     onBack = { showGraph = false },
                 )
+            } else if (current == null && showReview) {
+                // v2 4.3: repasar puede cambiar due dates y eliminar tarjetas —
+                // se refresca la galería al volver, como con la papelera.
+                ReviewScreen(
+                    repo = repo,
+                    onOpenNote = { note ->
+                        showReview = false
+                        viewModel.dismissTitleNudge()
+                        focusTitleOnOpen = false
+                        openNote = note
+                    },
+                    onBack = {
+                        viewModel.refresh()
+                        showReview = false
+                    },
+                )
             } else if (current == null && showTrash) {
                 // UC-14: notas eliminadas (RF-36) — restaurar puede traer de
                 // vuelta notas a la galería, así que se refresca al volver.
@@ -117,6 +135,15 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             } else if (current == null) {
+                // v2 4.3: contadores de repaso — se recalculan cuando la
+                // galería se refresca (cerrar nota, volver del repaso).
+                val reviewCards = remember(galleryState.notes) {
+                    galleryState.notes.flatMap { repo.loadCards(it.uuid) }
+                }
+                val reviewDue = remember(reviewCards) {
+                    val now = System.currentTimeMillis()
+                    reviewCards.count { it.dueAtMillis <= now }
+                }
                 GalleryScreen(
                     state = galleryState,
                     titleNudge = titleNudge,
@@ -161,6 +188,9 @@ class MainActivity : ComponentActivity() {
                     onOpenGraph = { showGraph = true },
                     onOpenTrash = { showTrash = true },
                     onOpenSettings = { showSettings = true },
+                    reviewDue = reviewDue,
+                    reviewTotal = reviewCards.size,
+                    onOpenReview = { showReview = true },
                     // v2 4.2: la vista elegida persiste con los ajustes.
                     viewTable = appSettings.galleryTable,
                     onToggleView = {

@@ -236,6 +236,12 @@ fun InkCanvasScreen(
     // Avisos de la herramienta Selección (v2 sección 5), p. ej. lazo vacío —
     // el dueño los muestra con el componente estándar RF-34.
     onSelectionNotice: (String) -> Unit = {},
+    // Tarjetas de repaso (v2 4.3): acción «Tarjeta» sobre la selección activa.
+    onCreateCard: (List<IdStroke>) -> Unit = {},
+    // Modo captura del reverso: el siguiente lazo de Selección se entrega por
+    // onCardBackSelected en vez de volverse selección editable.
+    cardBackCapture: Boolean = false,
+    onCardBackSelected: (List<IdStroke>) -> Unit = {},
     onLinkTap: (targetUuid: String) -> Unit = {},
     // Long-press de un dedo sobre la tinta de un link: menú contextual para
     // eliminar el vínculo deliberadamente (complementa RF-05a/b).
@@ -256,6 +262,8 @@ fun InkCanvasScreen(
     val currentLinkOverlays = rememberUpdatedState(linkOverlays)
     val currentOnLassoComplete = rememberUpdatedState(onLassoComplete)
     val currentOnSelectionNotice = rememberUpdatedState(onSelectionNotice)
+    val currentCardBackCapture = rememberUpdatedState(cardBackCapture)
+    val currentOnCardBackSelected = rememberUpdatedState(onCardBackSelected)
     val currentOnLinkTap = rememberUpdatedState(onLinkTap)
     val currentOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
 
@@ -1186,6 +1194,10 @@ fun InkCanvasScreen(
                                                 "El lazo quedó vacío — rodea por " +
                                                     "completo los trazos a editar"
                                             )
+                                        } else if (currentCardBackCapture.value) {
+                                            // v2 4.3: este lazo es el reverso de
+                                            // la tarjeta en captura, no selección.
+                                            currentOnCardBackSelected.value(selected)
                                         } else {
                                             selectedIds.value =
                                                 selected.mapTo(HashSet()) { it.id }
@@ -1283,6 +1295,31 @@ fun InkCanvasScreen(
             },
             onRelease = { eraserRouter?.handler = null },
         )
+
+        // Acción contextual «Tarjeta» (v2 4.3): visible junto al recuadro de la
+        // selección quieta (sin gesto en curso). Vive en espacio de pantalla,
+        // fuera del graphicsLayer, igual que la barra — el viewport es snapshot
+        // state, así que sigue al pan/zoom solo.
+        val cardSelIds = selectedIds.value
+        if (cardSelIds.isNotEmpty() && selectionTransform.value == null && !cardBackCapture) {
+            val cardStrokes = strokes.filter { it.id in cardSelIds }
+            if (cardStrokes.isNotEmpty()) {
+                val cardBox = strokesBoundingBox(cardStrokes)
+                AppButton(
+                    label = "Tarjeta",
+                    onClick = {
+                        selectedIds.value = emptySet()
+                        onCreateCard(cardStrokes)
+                    },
+                    modifier = Modifier.offset {
+                        IntOffset(
+                            (cardBox[2] * viewport.scale + viewport.offsetX + 16f).roundToInt(),
+                            (cardBox[1] * viewport.scale + viewport.offsetY).roundToInt(),
+                        )
+                    },
+                )
+            }
+        }
 
         // Barra de herramientas acoplable encima del canvas, fuera del
         // graphicsLayer de viewport para que no escale ni se desplace con el
